@@ -59,26 +59,11 @@ def get_size(s):
         if s < 1024: return f"{s:.2f} {unit}"
         s /= 1024
 
-def clean_file_name(name: str):
-    """লিঙ্ক থেকে সব জঞ্জাল পরিষ্কার করে নিখুঁত .mp4 লিঙ্ক বানায়"""
-    if not name: return f"video_{secrets.token_hex(4)}.mp4"
-    # শুধু অক্ষর, সংখ্যা এবং ডট রেখে বাকি সব আন্ডারস্কোর করা
-    clean = re.sub(r'[^a-zA-Z0-9.]', '_', name)
-    # একাধিক আন্ডারস্কোর (____) থাকলে ১টি করা
-    clean = re.sub(r'_+', '_', clean)
-    # ডট এর আশেপাশের আন্ডারস্কোর কাটা এবং ক্লিন করা
-    clean = clean.strip('_').replace('._', '.').replace('_.', '.')
-    
-    # এক্সটেনশন চেক
-    if not clean.lower().endswith(('.mp4', '.mkv', '.mp3', '.webm')):
-        clean += ".mp4"
-    return clean[:60]
-
+# --- ফাইল নেম ছাড়াই লিঙ্ক জেনারেট ---
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def handle_file_upload(_, m: Message):
     try:
         media = m.document or m.video or m.audio
-        # ফাইল চেক (একই ফাইল হলে আগের আইডি ব্যবহার করবে)
         ex = await db.collection.find_one({'file_unique_id': media.file_unique_id})
         if ex:
             uid, mid = ex['_id'], ex['message_id']
@@ -88,18 +73,12 @@ async def handle_file_upload(_, m: Message):
             await db.collection.insert_one({'_id': uid, 'message_id': mid, 'file_unique_id': media.file_unique_id})
         
         base = Config.BASE_URL.rstrip('/')
-        fname = clean_file_name(media.file_name)
-        stream_link = f"{base}/dl/{mid}/{fname}"
+        # লিঙ্ক এখন অনেক ছোট এবং ক্লিন হবে
+        stream_link = f"{base}/dl/{mid}/video.mp4"
         page_link = f"{base}/show/{uid}"
         
-        reply = (
-            f"🎬 **Movie:** `{media.file_name}`\n"
-            f"⚖️ **Size:** `{get_size(media.file_size)}`"
-        )
-        btn = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🌐 Watch Online", url=page_link)],
-            [InlineKeyboardButton("🔗 Direct Link", url=stream_link)]
-        ])
+        reply = f"🎬 **Name:** `{media.file_name}`\n⚖️ **Size:** `{get_size(media.file_size)}`"
+        btn = InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Watch Online", url=page_link)]])
         await m.reply_text(reply, reply_markup=btn, quote=True)
     except Exception: print(traceback.format_exc())
 
@@ -117,18 +96,19 @@ class ByteStreamer:
         loc=raw.types.InputDocumentFileLocation(id=f.media_id,access_hash=f.access_hash,file_reference=f.file_reference,thumb_size=f.thumbnail_size)
         try:
             for cp in range(1, pc + 1):
-                r=await ms.invoke(raw.functions.upload.GetFile(location=loc,offset=o,limit=cs),retries=3)
+                # ফাস্ট স্টার্টআপের জন্য ছোট চাঙ্ক
+                current_limit = 1024 * 128 if cp < 8 else cs 
+                r=await ms.invoke(raw.functions.upload.GetFile(location=loc,offset=o,limit=current_limit),retries=5)
                 if not r.bytes: break
                 if pc==1: yield r.bytes[fc:lc]
                 elif cp==1: yield r.bytes[fc:]
                 elif cp==pc: yield r.bytes[:lc]
                 else: yield r.bytes
-                o+=cs
+                o+=len(r.bytes)
         finally: work_loads[i]-=1
 
-@app.get("/dl/{mid}/{fname}")
-async def dl(r:Request, mid:int, fname:str):
-    if not multi_clients: raise HTTPException(503, "Bots not ready")
+@app.get("/dl/{mid}/{dummy}")
+async def dl(r:Request, mid:int, dummy:str):
     idx = min(work_loads, key=work_loads.get); c = multi_clients[idx]
     st = class_cache.get(c) or ByteStreamer(c); class_cache[c]=st
     try:
@@ -144,30 +124,22 @@ async def dl(r:Request, mid:int, fname:str):
             "Content-Type": m.mime_type or "video/mp4",
             "Accept-Ranges": "bytes",
             "Content-Length": str(rl),
-            "Content-Disposition": f'inline; filename="{fname}"'
+            "Content-Disposition": f'inline; filename="video.mp4"'
         }
         if rh: headers["Content-Range"] = f"bytes {fb}-{ub}/{fsize}"
         return StreamingResponse(st.yield_file(FileId.decode(m.file_id),idx,off,fc,lc,pc,cs), status_code=206 if rh else 200, headers=headers)
-    except Exception: raise HTTPException(404, "File not found")
+    except: raise HTTPException(404)
 
 @app.get("/api/file/{uid}")
 async def get_info(uid:str):
     m_id = await db.get_link(uid)
     msg = await bot.get_messages(Config.STORAGE_CHANNEL, m_id)
     m = msg.document or msg.video or msg.audio
-    fname = clean_file_name(m.file_name)
-    dl_u = f"{Config.BASE_URL}/dl/{m_id}/{fname}"
-    return {
-        "file_name": m.file_name, 
-        "file_size": get_size(m.file_size), 
-        "direct_dl_link": dl_u, 
-        "vlc_player_link": f"vlc://{dl_u}", 
-        "mx_player_link": f"intent:{dl_u}#Intent;action=android.intent.action.VIEW;type=video/*;end"
-    }
+    dl_u = f"{Config.BASE_URL}/dl/{m_id}/video.mp4"
+    return {"file_name": m.file_name, "file_size": get_size(m.file_size), "direct_dl_link": dl_u}
 
 @app.get("/show/{uid}", response_class=HTMLResponse)
-async def show_page(request: Request, uid: str): 
-    return templates.TemplateResponse("show.html", {"request": request})
+async def show(request: Request, uid: str): return templates.TemplateResponse("show.html", {"request": request})
 
 @app.get("/")
 async def root(): return {"status": "Live"}
