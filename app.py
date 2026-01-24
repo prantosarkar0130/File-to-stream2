@@ -4,23 +4,20 @@ import secrets
 import traceback
 import uvicorn
 import re
-import logging
+import math
 from contextlib import asynccontextmanager
 
 from pyrogram import Client, filters, enums
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ChatMemberUpdated
-from pyrogram.errors import FloodWait, UserNotParticipant
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pyrogram.file_id import FileId
 from pyrogram import raw
 from pyrogram.session import Session, Auth
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-import math
 
-# Project ki dusri files se import karo
+# Project files
 from config import Config
 from database import db
 
@@ -34,114 +31,91 @@ async def lifespan(app: FastAPI):
         multi_clients[0] = bot
         work_loads[0] = 0
         await initialize_clients()
-        await bot.get_chat(Config.STORAGE_CHANNEL)
-    except Exception as e:
-        print(f"Startup Error: {traceback.format_exc()}")
+    except Exception: print(traceback.format_exc())
     yield
-    if bot.is_initialized:
-        await bot.stop()
+    if bot.is_initialized: await bot.stop()
 
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-bot = Client("SimpleStreamBot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN, in_memory=True)
+bot = Client("StreamBot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN, in_memory=True)
 multi_clients = {}; work_loads = {}; class_cache = {}
 
-# --- MULTI-CLIENT SETUP ---
-async def start_client(client_id, bot_token):
+async def start_client(c_id, token):
     try:
-        client = await Client(name=str(client_id), api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=bot_token, no_updates=True, in_memory=True).start()
-        work_loads[client_id] = 0
-        multi_clients[client_id] = client
-    except Exception as e: print(f"Client {client_id} error: {e}")
+        client = await Client(name=str(c_id), api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=token, no_updates=True, in_memory=True).start()
+        work_loads[c_id] = 0
+        multi_clients[c_id] = client
+    except Exception as e: print(f"Client {c_id} error: {e}")
 
 async def initialize_clients():
     tokens = {c+1: t for c, (_, t) in enumerate(filter(lambda n: n[0].startswith("MULTI_TOKEN"), sorted(os.environ.items())))}
     tasks = [start_client(i, token) for i, token in tokens.items()]
     await asyncio.gather(*tasks)
 
-def get_readable_file_size(s):
-    if not s: return '0B'
+def get_size(s):
     for unit in ['B','KB','MB','GB']:
         if s < 1024: return f"{s:.2f} {unit}"
         s /= 1024
 
-def mask_filename(name: str):
-    if not name: return "File"
-    masked = ''.join(c if (i % 3 == 0) else '*' for i, c in enumerate(name.split('.')[0]))
-    return f"{masked}.{name.split('.')[-1]}"
-
 # =====================================================================================
-# --- UPDATED: HANDLE FILE UPLOAD (DIRECT LINK + ID SYNC) ---
+# --- AESTHETIC FILE HANDLER ---
 # =====================================================================================
 
-async def handle_file_upload(message: Message):
+async def handle_file_upload(m: Message):
     try:
-        media = message.document or message.video or message.audio
+        media = m.document or m.video or m.audio
         if not media: return
         
-        # Database check for duplicate
-        existing = await db.collection.find_one({'file_unique_id': media.file_unique_id})
-        
-        if existing:
-            unique_id = existing['_id']
-            msg_id = existing['message_id']
+        # Sync with Database
+        ex = await db.collection.find_one({'file_unique_id': media.file_unique_id})
+        if ex:
+            uid, mid = ex['_id'], ex['message_id']
         else:
-            sent = await message.copy(chat_id=Config.STORAGE_CHANNEL)
-            unique_id = secrets.token_urlsafe(8)
-            msg_id = sent.id
-            await db.collection.insert_one({
-                '_id': unique_id, 
-                'message_id': msg_id,
-                'file_unique_id': media.file_unique_id
-            })
+            sent = await m.copy(chat_id=Config.STORAGE_CHANNEL)
+            uid, mid = secrets.token_urlsafe(8), sent.id
+            await db.collection.insert_one({'_id': uid, 'message_id': mid, 'file_unique_id': media.file_unique_id})
         
-        # URL Formatting
-        base_url = Config.BASE_URL.rstrip('/')
-        clean_name = re.sub(r'[^a-zA-Z0-9._-]', '_', media.file_name or "file")
+        base = Config.BASE_URL.rstrip('/')
+        fname = re.sub(r'[^a-zA-Z0-9._-]', '_', media.file_name or "file")
         
-        verify_link = f"https://t.me/{Config.BOT_USERNAME}?start=verify_{unique_id}"
-        direct_link = f"{base_url}/dl/{msg_id}/{clean_name}"
+        # Aesthetic Reply
+        stream_link = f"{base}/dl/{mid}/{fname}"
+        page_link = f"{base}/show/{uid}"
         
-        reply_text = (
-            f"**✅ File Successfully Processed!**\n\n"
-            f"**1️⃣ User/Verification Link:**\n`{verify_link}`\n\n"
-            f"**2️⃣ Direct Stream Link (For ArtPlayer):**\n`{direct_link}`\n\n"
-            f"__Tap on the link to copy it.__"
+        reply = (
+            f"✨ **ꜰɪʟᴇ ᴘʀᴏᴄᴇssᴇᴅ sᴜᴄᴄᴇssꜰᴜʟʟʏ** ✨\n\n"
+            f"📂 **Name:** `{media.file_name}`\n"
+            f"⚖️ **Size:** `{get_size(media.file_size)}`\n\n"
+            f"🔗 **ᴅɪʀᴇᴄᴛ sᴛʀᴇᴀᴍ ʟɪɴᴋ (ꜰᴏʀ ᴘʟᴀʏᴇʀs):**\n"
+            f"`{stream_link}`\n\n"
+            f"🌐 **ᴡᴇʙ ᴘᴀɢᴇ ʟɪɴᴋ (ᴀᴇsᴛʜᴇᴛɪᴄ ᴅᴇsɪɢɴ):**\n"
+            f"`{page_link}`\n\n"
+            f"🚀 *Powered by Sharing Box*"
         )
-        await message.reply_text(reply_text, quote=True)
+        await m.reply_text(reply, quote=True)
         
-    except Exception as e:
-        print(traceback.format_exc())
-        await message.reply_text("Error processing file.")
-
-# --- HANDLERS & ROUTES ---
+    except Exception: await m.reply_text("❌ Something went wrong.")
 
 @bot.on_message(filters.command("start") & filters.private)
-async def start_cmd(c, m):
-    if len(m.command) > 1 and m.command[1].startswith("verify_"):
-        uid = m.command[1].split("_", 1)[1]
-        if Config.FORCE_SUB_CHANNEL:
-            try: await c.get_chat_member(Config.FORCE_SUB_CHANNEL, m.from_user.id)
-            except UserNotParticipant:
-                btn = [[InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{str(Config.FORCE_SUB_CHANNEL).replace('@','')}芽")]]
-                return await m.reply_text("Join channel first!", reply_markup=InlineKeyboardMarkup(btn))
-        await m.reply_text(f"**Verification Success!**\n\nLink: `{Config.BASE_URL}/show/{uid}`")
-    else:
-        await m.reply_text("Send me a file!")
+async def start(c, m): await m.reply_text(f"👋 **Hi {m.from_user.first_name}!**\nSend me any file and I'll give you high-speed stream links instantly.")
 
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def file_handler(_, m): await handle_file_upload(m)
 
+# =====================================================================================
+# --- WEB SERVER & STREAMING ---
+# =====================================================================================
+
 @app.get("/")
-async def root(): return {"status": "running"}
+async def root(): return {"status": "Aesthetic Streamer is Live"}
 
 @app.get("/show/{uid}", response_class=HTMLResponse)
-async def show(request: Request, uid: str):
+async def show_page(request: Request, uid: str):
+    # This renders your show.html - make sure that file is aesthetic!
     return templates.TemplateResponse("show.html", {"request": request})
 
-# --- STREAMING ENGINE ---
 class ByteStreamer:
     def __init__(self,c): self.client=c
     async def yield_file(self,f,i,o,fc,lc,pc,cs):
@@ -172,7 +146,8 @@ async def dl(r:Request, mid:int, fname:str):
     if rh:
         p = rh.replace("bytes=","").split("-"); fb=int(p[0])
         if p[1]: ub=int(p[1])
-    rl = ub-fb+1; cs=1024*1024; off=(fb//cs)*cs; fc=fb-off; lc=(ub%cs)+1; pc=math.ceil(rl/cs)
+    rl, cs = ub-fb+1, 1024*1024
+    off, fc, lc, pc = (fb//cs)*cs, fb-(fb//cs)*cs, (ub%cs)+1, math.ceil((ub-fb+1)/cs)
     headers = {"Content-Type": m.mime_type or "video/mp4", "Accept-Ranges": "bytes", "Content-Length": str(rl)}
     if rh: headers["Content-Range"] = f"bytes {fb}-{ub}/{fsize}"
     return StreamingResponse(st.yield_file(FileId.decode(m.file_id),idx,off,fc,lc,pc,cs), status_code=206 if rh else 200, headers=headers)
