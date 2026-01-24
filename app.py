@@ -55,20 +55,31 @@ async def initialize_clients():
     await asyncio.gather(*tasks)
 
 def get_size(s):
-    for unit in ['B','KB','MB','GB']:
+    if not s: return "0 B"
+    for unit in ['B','KB','MB','GB','TB']:
         if s < 1024: return f"{s:.2f} {unit}"
         s /= 1024
 
-# =====================================================================================
-# --- AESTHETIC FILE HANDLER ---
-# =====================================================================================
+def clean_file_name(name: str, msg_obj=None):
+    """লিঙ্ক থেকে বাড়তি ডট বা স্ল্যাশ দূর করে ক্লিন নাম তৈরি করে।"""
+    if not name or name.strip() == "":
+        # যদি নাম না থাকে তবে ভিডিও/অডিও টাইপ অনুযায়ী নাম দেয়
+        ext = ".mp4"
+        if msg_obj and msg_obj.audio: ext = ".mp3"
+        name = f"Video_{secrets.token_hex(2)}{ext}"
+    
+    # শুধু আলফানিউমেরিক ক্যারেক্টার রাখে
+    clean = re.sub(r'[^a-zA-Z0-9._-]', '_', name)
+    # যদি নামের শুরুতে ডট থাকে বা ডাবল ডট থাকে তা ফিক্স করে
+    clean = re.sub(r'\.+', '.', clean).strip('.')
+    return clean
 
+# --- HANDLER ---
 async def handle_file_upload(m: Message):
     try:
         media = m.document or m.video or m.audio
         if not media: return
         
-        # Sync with Database
         ex = await db.collection.find_one({'file_unique_id': media.file_unique_id})
         if ex:
             uid, mid = ex['_id'], ex['message_id']
@@ -78,42 +89,52 @@ async def handle_file_upload(m: Message):
             await db.collection.insert_one({'_id': uid, 'message_id': mid, 'file_unique_id': media.file_unique_id})
         
         base = Config.BASE_URL.rstrip('/')
-        fname = re.sub(r'[^a-zA-Z0-9._-]', '_', media.file_name or "file")
+        # এখানে নাম ক্লিন করা হচ্ছে যাতে /dl/21/.mp4 এর মতো না হয়
+        fname = clean_file_name(media.file_name, m)
         
-        # Aesthetic Reply
         stream_link = f"{base}/dl/{mid}/{fname}"
         page_link = f"{base}/show/{uid}"
         
         reply = (
-            f"✨ **ꜰɪʟᴇ ᴘʀᴏᴄᴇssᴇᴅ sᴜᴄᴄᴇssꜰᴜʟʟʏ** ✨\n\n"
-            f"📂 **Name:** `{media.file_name}`\n"
+            f"🎬 **File Name:** `{media.file_name or 'Unknown'}`\n"
             f"⚖️ **Size:** `{get_size(media.file_size)}`\n\n"
-            f"🔗 **ᴅɪʀᴇᴄᴛ sᴛʀᴇᴀᴍ ʟɪɴᴋ (ꜰᴏʀ ᴘʟᴀʏᴇʀs):**\n"
-            f"`{stream_link}`\n\n"
-            f"🌐 **ᴡᴇʙ ᴘᴀɢᴇ ʟɪɴᴋ (ᴀᴇsᴛʜᴇᴛɪᴄ ᴅᴇsɪɢɴ):**\n"
-            f"`{page_link}`\n\n"
-            f"🚀 *Powered by Sharing Box*"
+            f"🔗 **Direct Link:**\n`{stream_link}`\n\n"
+            f"🌐 **Web Link:**\n`{page_link}`"
         )
-        await m.reply_text(reply, quote=True)
-        
-    except Exception: await m.reply_text("❌ Something went wrong.")
+        btn = InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Open Web Page", url=page_link)]])
+        await m.reply_text(reply, reply_markup=btn, quote=True)
+    except Exception: print(traceback.format_exc())
 
 @bot.on_message(filters.command("start") & filters.private)
-async def start(c, m): await m.reply_text(f"👋 **Hi {m.from_user.first_name}!**\nSend me any file and I'll give you high-speed stream links instantly.")
+async def start(c, m): await m.reply_text(f"👋 Hi {m.from_user.first_name}!")
 
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def file_handler(_, m): await handle_file_upload(m)
 
-# =====================================================================================
-# --- WEB SERVER & STREAMING ---
-# =====================================================================================
+# --- API ROUTES ---
+@app.get("/api/file/{uid}")
+async def get_file_info(uid: str):
+    mid = await db.get_link(uid)
+    if not mid: raise HTTPException(404)
+    c = multi_clients[0]
+    msg = await c.get_messages(Config.STORAGE_CHANNEL, mid)
+    media = msg.document or msg.video or msg.audio
+    fname = clean_file_name(media.file_name, msg)
+    dl = f"{Config.BASE_URL}/dl/{mid}/{fname}"
+    return {
+        "file_name": media.file_name or "Untitled File",
+        "file_size": get_size(media.file_size),
+        "direct_dl_link": dl,
+        "vlc_player_link": f"vlc://{dl}",
+        "mx_player_link": f"intent:{dl}#Intent;action=android.intent.action.VIEW;type={media.mime_type or 'video/mp4'};end"
+    }
 
+# --- REMAINING ROUTES (Stream Engine & Show Page) ---
 @app.get("/")
-async def root(): return {"status": "Aesthetic Streamer is Live"}
+async def root(): return {"status": "Live"}
 
 @app.get("/show/{uid}", response_class=HTMLResponse)
 async def show_page(request: Request, uid: str):
-    # This renders your show.html - make sure that file is aesthetic!
     return templates.TemplateResponse("show.html", {"request": request})
 
 class ByteStreamer:
@@ -147,7 +168,7 @@ async def dl(r:Request, mid:int, fname:str):
         p = rh.replace("bytes=","").split("-"); fb=int(p[0])
         if p[1]: ub=int(p[1])
     rl, cs = ub-fb+1, 1024*1024
-    off, fc, lc, pc = (fb//cs)*cs, fb-(fb//cs)*cs, (ub%cs)+1, math.ceil((ub-fb+1)/cs)
+    off, fc, lc, pc = (fb//cs)*cs, fb-(fb//cs)*cs, (ub%cs)+1, math.ceil(rl/cs)
     headers = {"Content-Type": m.mime_type or "video/mp4", "Accept-Ranges": "bytes", "Content-Length": str(rl)}
     if rh: headers["Content-Range"] = f"bytes {fb}-{ub}/{fsize}"
     return StreamingResponse(st.yield_file(FileId.decode(m.file_id),idx,off,fc,lc,pc,cs), status_code=206 if rh else 200, headers=headers)
