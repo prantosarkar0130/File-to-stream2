@@ -1,4 +1,4 @@
-# database.py (UPDATED VERSION)
+# database.py (UPDATED FOR DUPLICATE CHECKING)
 
 import motor.motor_asyncio
 from config import Config
@@ -29,14 +29,25 @@ class Database:
             self._client.close()
             print("Database connection closed.")
 
-    async def save_link(self, unique_id, message_id):
+    # unique_id (link id), message_id (storage id), and file_unique_id (telegram file id)
+    async def save_link(self, unique_id, message_id, file_unique_id):
         if self.collection is not None:
-            await self.collection.insert_one({'_id': unique_id, 'message_id': message_id})
+            await self.collection.insert_one({
+                '_id': unique_id, 
+                'message_id': message_id,
+                'file_unique_id': file_unique_id  # Yeh duplicate check ke liye zaroori hai
+            })
 
     async def get_link(self, unique_id):
         if self.collection is not None:
             doc = await self.collection.find_one({'_id': unique_id})
             return doc.get('message_id') if doc else None
+        return None
+
+    # Naya function duplicate check karne ke liye
+    async def find_file(self, file_unique_id):
+        if self.collection is not None:
+            return await self.collection.find_one({'file_unique_id': file_unique_id})
         return None
 
 db = Database()
