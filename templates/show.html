@@ -1,148 +1,60 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Secure File Access</title>
-
-<script src="https://cdn.tailwindcss.com"></script>
-
-<style>
-    body {
-        font-family: "Inter", system-ui, sans-serif;
-        background: radial-gradient(circle at top, #1f2937, #020617);
-        color: #e5e7eb;
-        user-select: none;
-    }
-    .glass {
-        background: rgba(255,255,255,0.06);
-        backdrop-filter: blur(18px);
-        border: 1px solid rgba(255,255,255,0.08);
-    }
-    .btn {
-        padding: 0.85rem 1.6rem;
-        border-radius: 0.75rem;
-        font-weight: 600;
-        transition: all 0.25s ease;
-    }
-    .btn-primary {
-        background: linear-gradient(135deg,#6366f1,#4f46e5);
-        box-shadow: 0 10px 30px rgba(99,102,241,.35);
-    }
-    .btn-primary:hover {
-        transform: translateY(-2px) scale(1.03);
-        box-shadow: 0 14px 40px rgba(99,102,241,.55);
-    }
-    .btn-secondary {
-        background: rgba(255,255,255,0.08);
-        border: 1px solid rgba(255,255,255,0.15);
-    }
-    .btn-secondary:hover {
-        background: rgba(255,255,255,0.15);
-        transform: translateY(-2px);
-    }
-    .loader {
-        width: 64px;
-        height: 64px;
-        border-radius: 50%;
-        border: 6px solid rgba(255,255,255,.15);
-        border-top-color: #6366f1;
-        animation: spin 1.2s linear infinite;
-        margin: auto;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream & Download</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background: radial-gradient(circle at top, #1a1a2e, #16213e); color: white; font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; }
+        .btn-gradient { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); transition: 0.3s; }
+        .btn-gradient:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(79, 172, 254, 0.5); }
+    </style>
 </head>
-
-<body class="min-h-screen flex flex-col">
-
-<!-- HEADER -->
-<header class="p-6 text-center">
-    <h1 class="text-2xl font-bold tracking-wide">
-        <span class="text-indigo-400">Secure</span> Access
-    </h1>
-    <p class="text-sm text-gray-400 mt-1">Private • Fast • Encrypted</p>
-</header>
-
-<!-- MAIN -->
-<main class="flex-grow flex items-center justify-center px-4">
-    <div class="max-w-xl w-full glass rounded-2xl p-6 sm:p-8 text-center shadow-2xl">
-
-        <!-- Loader -->
-        <div id="loader-container">
-            <div class="loader"></div>
-            <p class="mt-4 text-gray-400">Fetching your file securely…</p>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <div class="glass max-w-lg w-full p-8 text-center">
+        <div class="mb-6">
+            <i class="fa-solid fa-circle-play text-6xl text-blue-400"></i>
         </div>
 
-        <!-- Content -->
-        <div id="content-container" style="display:none">
-            <h2 id="file-name" class="text-xl sm:text-2xl font-bold break-words"></h2>
-            <p id="file-size" class="text-gray-400 mt-1 mb-6"></p>
+        <!-- new ui design kora  -->
+        <h1 id="fileName" class="text-xl font-bold mb-2 truncate px-4">Loading File...</h1>
+        <p id="fileSize" class="text-gray-400 mb-8">Size: -- MB</p>
 
-            <div id="button-container" class="flex flex-col gap-4"></div>
+        <div class="space-y-4">
+            <a id="vlcLink" href="#" class="flex items-center justify-center gap-3 w-full py-3 px-6 glass hover:bg-white/10 transition rounded-xl">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/e/e6/VLC_Icon.svg" class="w-6 h-6"> Play in VLC Player
+            </a>
+            <a id="mxLink" href="#" class="flex items-center justify-center gap-3 w-full py-3 px-6 glass hover:bg-white/10 transition rounded-xl">
+                <img src="https://play-lh.googleusercontent.com/97yXmYt76BvC_S-FmPqS5nE5f2e8Yh9Y9Y9Y9Y9" class="w-6 h-6 rounded"> Play in MX Player
+            </a>
+            
+            <hr class="border-white/10 my-6">
 
-            <p class="mt-6 text-xs text-gray-500">
-                Links are private & protected. Do not share publicly.
-            </p>
+            <a id="dlLink" href="#" class="btn-gradient flex items-center justify-center gap-3 w-full py-4 px-6 rounded-xl font-bold text-lg text-slate-900">
+                <i class="fa-solid fa-download"></i> Download Fast
+            </a>
         </div>
-
+        <p class="mt-8 text-xs text-gray-500 italic">Powered by Sharing Box Bot</p>
     </div>
-</main>
 
-<!-- FOOTER -->
-<footer class="p-4 text-center text-xs text-gray-500">
-    © 2025 • All Rights Reserved
-</footer>
-
-<script>
-const BASE_URL = window.location.origin;
-const FILE_ID = window.location.pathname.split("/").pop();
-
-async function fetchFileData() {
-    const loader = document.getElementById("loader-container");
-    const content = document.getElementById("content-container");
-    const fileNameEl = document.getElementById("file-name");
-    const fileSizeEl = document.getElementById("file-size");
-    const buttonContainer = document.getElementById("button-container");
-
-    try {
-        const res = await fetch(`${BASE_URL}/api/file/${FILE_ID}`);
-        if (!res.ok) throw new Error();
-
-        const data = await res.json();
-        document.title = data.file_name;
-
-        fileNameEl.innerText = data.file_name;
-        fileSizeEl.innerText = `Size • ${data.file_size}`;
-
-        buttonContainer.innerHTML = "";
-
-        if (data.is_media) {
-            const mx = `intent:${data.direct_dl_link}#Intent;action=android.intent.action.VIEW;type=video/*;end`;
-            const vlc = `intent:${data.direct_dl_link}#Intent;action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc;end`;
-
-            buttonContainer.innerHTML = `
-                <a href="${data.direct_dl_link}" class="btn btn-primary">⬇ Download Now</a>
-                <a href="${mx}" class="btn btn-secondary">▶ Play in MX Player</a>
-                <a href="${vlc}" class="btn btn-secondary">▶ Play in VLC</a>
-            `;
-        } else {
-            buttonContainer.innerHTML = `
-                <a href="${data.direct_dl_link}" class="btn btn-primary">⬇ Download File</a>
-            `;
-        }
-
-        loader.style.display = "none";
-        content.style.display = "block";
-
-    } catch {
-        loader.innerHTML = "<p class='text-red-400'>❌ Link expired or invalid</p>";
-    }
-}
-
-fetchFileData();
-document.addEventListener("contextmenu", e => e.preventDefault());
-</script>
-
+    <script>
+        const uid = window.location.pathname.split('/').pop();
+        fetch(`/api/file/${uid}`)
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('fileName').innerText = data.file_name;
+                document.getElementById('fileSize').innerText = 'Size: ' + data.file_size;
+                document.getElementById('dlLink').href = data.direct_dl_link;
+                document.getElementById('vlcLink').href = data.vlc_player_link;
+                document.getElementById('mxLink').href = data.mx_player_link;
+            })
+            .catch(err => {
+                document.getElementById('fileName').innerText = "File Not Found!";
+                console.error(err);
+            });
+    </script>
 </body>
 </html>
