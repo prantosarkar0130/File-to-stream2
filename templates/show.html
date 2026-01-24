@@ -1,209 +1,148 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure File Access</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        /* Base Styling */
-        body {
-            background-color: #0b0f19;
-            color: #ffffff;
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            min-height: 100vh;
-            align-items: center;
-            justify-content: center;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Secure File Access</title>
 
-        /* Header Styling */
-        .header {
-            margin-bottom: 30px;
-            text-align: center;
-        }
-        .header h1 {
-            color: #6366f1; /* Indigo color */
-            margin: 0;
-            font-size: 26px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-        }
-        .header p {
-            color: #94a3b8;
-            font-size: 14px;
-            margin-top: 8px;
-        }
+<script src="https://cdn.tailwindcss.com"></script>
 
-        /* Main Container */
-        .container {
-            background-color: #1e293b;
-            padding: 40px;
-            border-radius: 20px;
-            width: 90%;
-            max-width: 480px;
-            text-align: center;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        /* File Info */
-        .file-name {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 8px;
-            word-wrap: break-word;
-            line-height: 1.5;
-            color: #f1f5f9;
-        }
-        .file-size {
-            color: #94a3b8;
-            font-size: 14px;
-            margin-bottom: 35px;
-        }
-
-        /* Buttons Styling */
-        .btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            width: 100%;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-radius: 12px;
-            text-decoration: none;
-            font-weight: 600;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            font-size: 16px;
-            box-sizing: border-box;
-        }
-
-        .btn-download {
-            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-            color: white;
-            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
-        }
-        .btn-download:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
-        }
-
-        .btn-player {
-            background-color: #334155;
-            color: #e2e8f0;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .btn-player:hover {
-            background-color: #475569;
-            transform: translateY(-2px);
-        }
-
-        /* Loader & Messages */
-        #loader {
-            color: #6366f1;
-            font-weight: 500;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 15px;
-        }
-        .spinner {
-            border: 3px solid rgba(99, 102, 241, 0.1);
-            border-top: 3px solid #6366f1;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        .footer-note {
-            color: #64748b;
-            font-size: 12px;
-            margin-top: 25px;
-            line-height: 1.4;
-        }
-
-        .copyright {
-            margin-top: auto;
-            padding: 30px;
-            color: #475569;
-            font-size: 12px;
-        }
-    </style>
+<style>
+    body {
+        font-family: "Inter", system-ui, sans-serif;
+        background: radial-gradient(circle at top, #1f2937, #020617);
+        color: #e5e7eb;
+        user-select: none;
+    }
+    .glass {
+        background: rgba(255,255,255,0.06);
+        backdrop-filter: blur(18px);
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .btn {
+        padding: 0.85rem 1.6rem;
+        border-radius: 0.75rem;
+        font-weight: 600;
+        transition: all 0.25s ease;
+    }
+    .btn-primary {
+        background: linear-gradient(135deg,#6366f1,#4f46e5);
+        box-shadow: 0 10px 30px rgba(99,102,241,.35);
+    }
+    .btn-primary:hover {
+        transform: translateY(-2px) scale(1.03);
+        box-shadow: 0 14px 40px rgba(99,102,241,.55);
+    }
+    .btn-secondary {
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.15);
+    }
+    .btn-secondary:hover {
+        background: rgba(255,255,255,0.15);
+        transform: translateY(-2px);
+    }
+    .loader {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        border: 6px solid rgba(255,255,255,.15);
+        border-top-color: #6366f1;
+        animation: spin 1.2s linear infinite;
+        margin: auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+</style>
 </head>
-<body>
 
-    <div class="header">
-        <h1>Secure Access</h1>
-        <p>Private • Fast • Encrypted</p>
-    </div>
+<body class="min-h-screen flex flex-col">
 
-    <div class="container">
-        <div id="loader">
-            <div class="spinner"></div>
-            <span>Securing your connection...</span>
+<!-- HEADER -->
+<header class="p-6 text-center">
+    <h1 class="text-2xl font-bold tracking-wide">
+        <span class="text-indigo-400">Secure</span> Access
+    </h1>
+    <p class="text-sm text-gray-400 mt-1">Private • Fast • Encrypted</p>
+</header>
+
+<!-- MAIN -->
+<main class="flex-grow flex items-center justify-center px-4">
+    <div class="max-w-xl w-full glass rounded-2xl p-6 sm:p-8 text-center shadow-2xl">
+
+        <!-- Loader -->
+        <div id="loader-container">
+            <div class="loader"></div>
+            <p class="mt-4 text-gray-400">Fetching your file securely…</p>
         </div>
 
-        <div id="content" style="display: none;">
-            <div class="file-name" id="name">File Name</div>
-            <div class="file-size" id="size">Size: 0.00 MB</div>
-            
-            <a id="dl" href="#" class="btn btn-download">
-                <i class="fa-solid fa-cloud-arrow-down"></i> Download Now
-            </a>
-            
-            <a id="mx" href="#" class="btn btn-player">
-                <i class="fa-solid fa-play"></i> Play in MX Player
-            </a>
-            
-            <a id="vlc" href="#" class="btn btn-player">
-                <i class="fa-solid fa-circle-play"></i> Play in VLC
-            </a>
-            
-            <div class="footer-note">
-                Links are private and generated only for you.<br>
-                Do not share the direct streaming URL.
-            </div>
+        <!-- Content -->
+        <div id="content-container" style="display:none">
+            <h2 id="file-name" class="text-xl sm:text-2xl font-bold break-words"></h2>
+            <p id="file-size" class="text-gray-400 mt-1 mb-6"></p>
+
+            <div id="button-container" class="flex flex-col gap-4"></div>
+
+            <p class="mt-6 text-xs text-gray-500">
+                Links are private & protected. Do not share publicly.
+            </p>
         </div>
+
     </div>
+</main>
 
-    <div class="copyright">© 2026 Sharing Box • All Rights Reserved</div>
+<!-- FOOTER -->
+<footer class="p-4 text-center text-xs text-gray-500">
+    © 2025 • All Rights Reserved
+</footer>
 
-    <script>
-        // Extract UID from URL
-        const uid = window.location.pathname.split('/').pop();
+<script>
+const BASE_URL = window.location.origin;
+const FILE_ID = window.location.pathname.split("/").pop();
 
-        async function fetchFileData() {
-            try {
-                const response = await fetch('/api/file/' + uid);
-                if (!response.ok) throw new Error('File not found');
-                
-                const data = await response.json();
+async function fetchFileData() {
+    const loader = document.getElementById("loader-container");
+    const content = document.getElementById("content-container");
+    const fileNameEl = document.getElementById("file-name");
+    const fileSizeEl = document.getElementById("file-size");
+    const buttonContainer = document.getElementById("button-container");
 
-                // Update UI with Data
-                document.getElementById('name').innerText = data.file_name;
-                document.getElementById('size').innerText = 'Size • ' + data.file_size;
-                document.getElementById('dl').href = data.direct_dl_link;
-                document.getElementById('mx').href = data.mx_player_link;
-                document.getElementById('vlc').href = data.vlc_player_link;
-                
-                // Switch Visibility
-                document.getElementById('loader').style.display = 'none';
-                document.getElementById('content').style.display = 'block';
-            } catch (error) {
-                document.getElementById('loader').innerHTML = 
-                    '<i class="fa-solid fa-circle-exclamation" style="font-size: 30px; color: #ef4444;"></i>' +
-                    '<span style="color: #ef4444; margin-top: 10px;">Link Expired or Invalid!</span>';
-            }
+    try {
+        const res = await fetch(`${BASE_URL}/api/file/${FILE_ID}`);
+        if (!res.ok) throw new Error();
+
+        const data = await res.json();
+        document.title = data.file_name;
+
+        fileNameEl.innerText = data.file_name;
+        fileSizeEl.innerText = `Size • ${data.file_size}`;
+
+        buttonContainer.innerHTML = "";
+
+        if (data.is_media) {
+            const mx = `intent:${data.direct_dl_link}#Intent;action=android.intent.action.VIEW;type=video/*;end`;
+            const vlc = `intent:${data.direct_dl_link}#Intent;action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc;end`;
+
+            buttonContainer.innerHTML = `
+                <a href="${data.direct_dl_link}" class="btn btn-primary">⬇ Download Now</a>
+                <a href="${mx}" class="btn btn-secondary">▶ Play in MX Player</a>
+                <a href="${vlc}" class="btn btn-secondary">▶ Play in VLC</a>
+            `;
+        } else {
+            buttonContainer.innerHTML = `
+                <a href="${data.direct_dl_link}" class="btn btn-primary">⬇ Download File</a>
+            `;
         }
 
-        // Initialize Fetch
-        fetchFileData();
-    </script>
+        loader.style.display = "none";
+        content.style.display = "block";
+
+    } catch {
+        loader.innerHTML = "<p class='text-red-400'>❌ Link expired or invalid</p>";
+    }
+}
+
+fetchFileData();
+document.addEventListener("contextmenu", e => e.preventDefault());
+</script>
+
 </body>
 </html>
