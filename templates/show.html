@@ -3,58 +3,207 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stream & Download</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <title>Secure File Access</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { background: radial-gradient(circle at top, #1a1a2e, #16213e); color: white; font-family: 'Inter', sans-serif; }
-        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; }
-        .btn-gradient { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); transition: 0.3s; }
-        .btn-gradient:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(79, 172, 254, 0.5); }
+        /* Base Styling */
+        body {
+            background-color: #0b0f19;
+            color: #ffffff;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Header Styling */
+        .header {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            color: #6366f1; /* Indigo color */
+            margin: 0;
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .header p {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+
+        /* Main Container */
+        .container {
+            background-color: #1e293b;
+            padding: 40px;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 480px;
+            text-align: center;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* File Info */
+        .file-name {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            word-wrap: break-word;
+            line-height: 1.5;
+            color: #f1f5f9;
+        }
+        .file-size {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-bottom: 35px;
+        }
+
+        /* Buttons Styling */
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        .btn-download {
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+        .btn-download:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-player {
+            background-color: #334155;
+            color: #e2e8f0;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .btn-player:hover {
+            background-color: #475569;
+            transform: translateY(-2px);
+        }
+
+        /* Loader & Messages */
+        #loader {
+            color: #6366f1;
+            font-weight: 500;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+        .spinner {
+            border: 3px solid rgba(99, 102, 241, 0.1);
+            border-top: 3px solid #6366f1;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .footer-note {
+            color: #64748b;
+            font-size: 12px;
+            margin-top: 25px;
+            line-height: 1.4;
+        }
+
+        .copyright {
+            margin-top: auto;
+            padding: 30px;
+            color: #475569;
+            font-size: 12px;
+        }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-4">
-    <div class="glass max-w-lg w-full p-8 text-center">
-        <div class="mb-6">
-            <i class="fa-solid fa-circle-play text-6xl text-blue-400"></i>
-        </div>
+<body>
 
-        <!-- new ui design kora  -->
-        <h1 id="fileName" class="text-xl font-bold mb-2 truncate px-4">Loading File...</h1>
-        <p id="fileSize" class="text-gray-400 mb-8">Size: -- MB</p>
-
-        <div class="space-y-4">
-            <a id="vlcLink" href="#" class="flex items-center justify-center gap-3 w-full py-3 px-6 glass hover:bg-white/10 transition rounded-xl">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/e/e6/VLC_Icon.svg" class="w-6 h-6"> Play in VLC Player
-            </a>
-            <a id="mxLink" href="#" class="flex items-center justify-center gap-3 w-full py-3 px-6 glass hover:bg-white/10 transition rounded-xl">
-                <img src="https://play-lh.googleusercontent.com/97yXmYt76BvC_S-FmPqS5nE5f2e8Yh9Y9Y9Y9Y9" class="w-6 h-6 rounded"> Play in MX Player
-            </a>
-            
-            <hr class="border-white/10 my-6">
-
-            <a id="dlLink" href="#" class="btn-gradient flex items-center justify-center gap-3 w-full py-4 px-6 rounded-xl font-bold text-lg text-slate-900">
-                <i class="fa-solid fa-download"></i> Download Fast
-            </a>
-        </div>
-        <p class="mt-8 text-xs text-gray-500 italic">Powered by Sharing Box Bot</p>
+    <div class="header">
+        <h1>Secure Access</h1>
+        <p>Private • Fast • Encrypted</p>
     </div>
 
+    <div class="container">
+        <div id="loader">
+            <div class="spinner"></div>
+            <span>Securing your connection...</span>
+        </div>
+
+        <div id="content" style="display: none;">
+            <div class="file-name" id="name">File Name</div>
+            <div class="file-size" id="size">Size: 0.00 MB</div>
+            
+            <a id="dl" href="#" class="btn btn-download">
+                <i class="fa-solid fa-cloud-arrow-down"></i> Download Now
+            </a>
+            
+            <a id="mx" href="#" class="btn btn-player">
+                <i class="fa-solid fa-play"></i> Play in MX Player
+            </a>
+            
+            <a id="vlc" href="#" class="btn btn-player">
+                <i class="fa-solid fa-circle-play"></i> Play in VLC
+            </a>
+            
+            <div class="footer-note">
+                Links are private and generated only for you.<br>
+                Do not share the direct streaming URL.
+            </div>
+        </div>
+    </div>
+
+    <div class="copyright">© 2026 Sharing Box • All Rights Reserved</div>
+
     <script>
+        // Extract UID from URL
         const uid = window.location.pathname.split('/').pop();
-        fetch(`/api/file/${uid}`)
-            .then(res => res.json())
-            .then(data => {
-                document.getElementById('fileName').innerText = data.file_name;
-                document.getElementById('fileSize').innerText = 'Size: ' + data.file_size;
-                document.getElementById('dlLink').href = data.direct_dl_link;
-                document.getElementById('vlcLink').href = data.vlc_player_link;
-                document.getElementById('mxLink').href = data.mx_player_link;
-            })
-            .catch(err => {
-                document.getElementById('fileName').innerText = "File Not Found!";
-                console.error(err);
-            });
+
+        async function fetchFileData() {
+            try {
+                const response = await fetch('/api/file/' + uid);
+                if (!response.ok) throw new Error('File not found');
+                
+                const data = await response.json();
+
+                // Update UI with Data
+                document.getElementById('name').innerText = data.file_name;
+                document.getElementById('size').innerText = 'Size • ' + data.file_size;
+                document.getElementById('dl').href = data.direct_dl_link;
+                document.getElementById('mx').href = data.mx_player_link;
+                document.getElementById('vlc').href = data.vlc_player_link;
+                
+                // Switch Visibility
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+            } catch (error) {
+                document.getElementById('loader').innerHTML = 
+                    '<i class="fa-solid fa-circle-exclamation" style="font-size: 30px; color: #ef4444;"></i>' +
+                    '<span style="color: #ef4444; margin-top: 10px;">Link Expired or Invalid!</span>';
+            }
+        }
+
+        // Initialize Fetch
+        fetchFileData();
     </script>
 </body>
 </html>
