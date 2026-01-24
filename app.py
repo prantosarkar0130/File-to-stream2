@@ -61,17 +61,30 @@ def get_size(s):
         s /= 1024
 
 def clean_file_name(name: str, msg_obj=None):
-    """লিঙ্ক থেকে বাড়তি ডট বা স্ল্যাশ দূর করে ক্লিন নাম তৈরি করে।"""
+    """লিঙ্ক থেকে অপ্রয়োজনীয় আন্ডারস্কোর এবং লম্বা দাগ দূর করে একদম ক্লিন নাম দেয়।"""
     if not name or name.strip() == "":
-        # যদি নাম না থাকে তবে ভিডিও/অডিও টাইপ অনুযায়ী নাম দেয়
         ext = ".mp4"
-        if msg_obj and msg_obj.audio: ext = ".mp3"
+        if msg_obj and (msg_obj.audio or (msg_obj.document and msg_obj.document.mime_type.startswith('audio'))):
+            ext = ".mp3"
         name = f"Video_{secrets.token_hex(2)}{ext}"
     
-    # শুধু আলফানিউমেরিক ক্যারেক্টার রাখে
-    clean = re.sub(r'[^a-zA-Z0-9._-]', '_', name)
-    # যদি নামের শুরুতে ডট থাকে বা ডাবল ডট থাকে তা ফিক্স করে
-    clean = re.sub(r'\.+', '.', clean).strip('.')
+    # ১. সব স্পেশাল ক্যারেক্টারকে আন্ডারস্কোরে রূপান্তর
+    clean = re.sub(r'[^a-zA-Z0-9.]', '_', name)
+    
+    # ২. একাধিক আন্ডারস্কোর (____) থাকলে সেটাকে মাত্র একটি (_) বানানো
+    clean = re.sub(r'_+', '_', clean)
+    
+    # ৩. একাধিক ডট থাকলে একটি করা এবং দুই পাশের বাড়তি আন্ডারস্কোর/ডট কাটা
+    clean = re.sub(r'\.+', '.', clean).strip('_').strip('.')
+    
+    # ৪. নাম খুব লম্বা হলে ছোট করা (Art Player এর সুবিধার জন্য)
+    if len(clean) > 50:
+        parts = clean.rsplit('.', 1)
+        if len(parts) > 1:
+            clean = parts[0][:40] + "." + parts[1]
+        else:
+            clean = clean[:45]
+            
     return clean
 
 # --- HANDLER ---
@@ -89,7 +102,6 @@ async def handle_file_upload(m: Message):
             await db.collection.insert_one({'_id': uid, 'message_id': mid, 'file_unique_id': media.file_unique_id})
         
         base = Config.BASE_URL.rstrip('/')
-        # এখানে নাম ক্লিন করা হচ্ছে যাতে /dl/21/.mp4 এর মতো না হয়
         fname = clean_file_name(media.file_name, m)
         
         stream_link = f"{base}/dl/{mid}/{fname}"
@@ -129,7 +141,6 @@ async def get_file_info(uid: str):
         "mx_player_link": f"intent:{dl}#Intent;action=android.intent.action.VIEW;type={media.mime_type or 'video/mp4'};end"
     }
 
-# --- REMAINING ROUTES (Stream Engine & Show Page) ---
 @app.get("/")
 async def root(): return {"status": "Live"}
 
@@ -168,7 +179,7 @@ async def dl(r:Request, mid:int, fname:str):
         p = rh.replace("bytes=","").split("-"); fb=int(p[0])
         if p[1]: ub=int(p[1])
     rl, cs = ub-fb+1, 1024*1024
-    off, fc, lc, pc = (fb//cs)*cs, fb-(fb//cs)*cs, (ub%cs)+1, math.ceil(rl/cs)
+    off, fc, lc, pc = (fb//cs)*cs, fb-(fb//cs)*cs, (ub%cs)+1, math.ceil((ub-fb+1)/cs)
     headers = {"Content-Type": m.mime_type or "video/mp4", "Accept-Ranges": "bytes", "Content-Length": str(rl)}
     if rh: headers["Content-Range"] = f"bytes {fb}-{ub}/{fsize}"
     return StreamingResponse(st.yield_file(FileId.decode(m.file_id),idx,off,fc,lc,pc,cs), status_code=206 if rh else 200, headers=headers)
