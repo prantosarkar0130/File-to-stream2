@@ -61,29 +61,28 @@ def get_size(s):
         s /= 1024
 
 def clean_file_name(name: str, msg_obj=None):
-    """লিঙ্ক থেকে অপ্রয়োজনীয় আন্ডারস্কোর এবং লম্বা দাগ দূর করে একদম ক্লিন নাম দেয়।"""
+    """লিঙ্ক থেকে স্ল্যাশ বা ভুল এক্সটেনশন দূর করে .mp4 নিশ্চিত করে।"""
+    # ১. যদি নাম না থাকে তবে ডিফল্ট নাম
     if not name or name.strip() == "":
-        ext = ".mp4"
-        if msg_obj and (msg_obj.audio or (msg_obj.document and msg_obj.document.mime_type.startswith('audio'))):
-            ext = ".mp3"
-        name = f"Video_{secrets.token_hex(2)}{ext}"
+        name = f"Video_{secrets.token_hex(2)}.mp4"
     
-    # ১. সব স্পেশাল ক্যারেক্টারকে আন্ডারস্কোরে রূপান্তর
+    # ২. সব স্পেশাল ক্যারেক্টারকে আন্ডারস্কোরে রূপান্তর (ডট ছাড়া)
+    # এখানে ডটকে রক্ষা করা হয়েছে
     clean = re.sub(r'[^a-zA-Z0-9.]', '_', name)
     
-    # ২. একাধিক আন্ডারস্কোর (____) থাকলে সেটাকে মাত্র একটি (_) বানানো
+    # ৩. একাধিক আন্ডারস্কোর বা ডট ক্লিন করা
     clean = re.sub(r'_+', '_', clean)
-    
-    # ৩. একাধিক ডট থাকলে একটি করা এবং দুই পাশের বাড়তি আন্ডারস্কোর/ডট কাটা
     clean = re.sub(r'\.+', '.', clean).strip('_').strip('.')
     
-    # ৪. নাম খুব লম্বা হলে ছোট করা (Art Player এর সুবিধার জন্য)
+    # ৪. এক্সটেনশন চেক (খুবই গুরুত্বপূর্ণ)
+    # যদি শেষে .mp4 বা .mkv না থাকে তবে জোর করে .mp4 যোগ করা
+    if not (clean.lower().endswith('.mp4') or clean.lower().endswith('.mkv') or clean.lower().endswith('.mp3')):
+        clean += ".mp4"
+    
+    # ৫. অতিরিক্ত লম্বা নাম ছোট করা
     if len(clean) > 50:
         parts = clean.rsplit('.', 1)
-        if len(parts) > 1:
-            clean = parts[0][:40] + "." + parts[1]
-        else:
-            clean = clean[:45]
+        clean = parts[0][:40] + "." + parts[1]
             
     return clean
 
@@ -110,7 +109,7 @@ async def handle_file_upload(m: Message):
         reply = (
             f"🎬 **File Name:** `{media.file_name or 'Unknown'}`\n"
             f"⚖️ **Size:** `{get_size(media.file_size)}`\n\n"
-            f"🔗 **Direct Link:**\n`{stream_link}`\n\n"
+            f"🔗 **Direct Link (For ArtPlayer):**\n`{stream_link}`\n\n"
             f"🌐 **Web Link:**\n`{page_link}`"
         )
         btn = InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Open Web Page", url=page_link)]])
@@ -123,7 +122,7 @@ async def start(c, m): await m.reply_text(f"👋 Hi {m.from_user.first_name}!")
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def file_handler(_, m): await handle_file_upload(m)
 
-# --- API ROUTES ---
+# --- API & STREAM ENGINE (আগের মতোই থাকবে) ---
 @app.get("/api/file/{uid}")
 async def get_file_info(uid: str):
     mid = await db.get_link(uid)
