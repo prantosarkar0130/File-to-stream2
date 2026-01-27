@@ -37,7 +37,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["Content-Range", "Accept-Ranges"])
+
+# CORS and Header Optimization
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"]
+)
 
 bot = Client("SimpleStreamBot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN, in_memory=True)
 
@@ -60,7 +68,7 @@ async def handle_file(client, message):
         f_name = ex.get("file_name", "video.mkv").replace(" ", "_")
         d_link = f"{Config.BASE_URL}/dl/{m_id}/{f_name}"
         return await message.reply_text(
-            f"✅ **File already exists!**\n\n🔗 **Stream Link:**\n`{d_link}`\n\n📥 **Download Link:**\n`{d_link}`",
+            f"✅ **File already exists!**\n\n🔗 **Stream Link (Click to Copy):**\n`{d_link}`\n\n📥 **Download Link (Click to Copy):**\n`{d_link}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}")]])
         )
     waiting_for_name[message.from_user.id] = message
@@ -85,12 +93,12 @@ async def process_name(client, message):
         d_link = f"{Config.BASE_URL}/dl/{sent.id}/{final_name}"
         await sts.delete()
         await orig.reply_text(
-            f"✅ **Success!**\n\n🔗 **Stream Link:**\n`{d_link}`\n\n📥 **Download Link:**\n`{d_link}`",
+            f"✅ **Success!**\n\n🔗 **Stream Link (Click to Copy):**\n`{d_link}`\n\n📥 **Download Link (Click to Copy):**\n`{d_link}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}")]])
         )
     except: await message.reply_text("❌ **Failed!**")
 
-# --- ULTRA-FAST STREAMING ENGINE ---
+# --- CLEAN & FAST STREAMING ENGINE ---
 class ByteStreamer:
     def __init__(self, c): self.client = c
     async def get_session(self, dc_id):
@@ -117,8 +125,8 @@ class ByteStreamer:
                 if not r or not r.bytes: break
                 yield r.bytes[fc:] if _==0 else r.bytes[:lc] if _==pc-1 else r.bytes
                 o += cs
-                # High speed optimization: minimal sleep
-                if _ % 5 == 0: await asyncio.sleep(0.001)
+                # Optimize for speed without crashing Chrome's protocol
+                if _ % 2 == 0: await asyncio.sleep(0.001)
         finally: work_loads[i] -= 1
 
 @app.get("/dl/{mid}/{fname}")
@@ -130,20 +138,23 @@ async def stream_media(r: Request, mid: int, fname: str):
         m = msg.document or msg.video
         fid = FileId.decode(m.file_id)
         rh = r.headers.get("Range", ""); fb = int(rh.replace("bytes=","").split("-")[0]) if rh else 0
-        cs = 1024 * 1024 # Increased chunk size to 1MB for faster loading
+        cs = 1024 * 512 # Set back to 512 KB for best stability
         off = (fb//cs)*cs; fc = fb-off; rl = m.file_size-fb
         
-        # Anti-QUIC & Buffer headers
-        headers = {
-            "Content-Type": m.mime_type or "video/mp4",
-            "Accept-Ranges": "bytes",
-            "Content-Length": str(rl),
-            "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}",
-            "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive"
-        }
-        return StreamingResponse(st.yield_file(fid, idx, off, fc, 0, math.ceil(rl/cs), cs), status_code=206 if rh else 200, headers=headers)
+        return StreamingResponse(
+            st.yield_file(fid, idx, off, fc, 0, math.ceil(rl/cs), cs),
+            status_code=206 if rh else 200,
+            headers={
+                "Content-Type": m.mime_type or "video/mp4",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(rl),
+                "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}",
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "public, no-cache, no-transform",
+                "Connection": "keep-alive",
+                "Alt-Svc": "clear" # Tells Chrome to clear any HTTP/3 (QUIC) caching
+            }
+        )
     except: raise HTTPException(404)
 
 @app.get("/show/{unique_id}", response_class=HTMLResponse)
