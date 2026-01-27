@@ -38,13 +38,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 
-# CORS and Header Optimization
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"]
+    allow_methods=["GET", "HEAD", "OPTIONS"],
+    allow_headers=["Range", "Content-Type", "Referer", "Origin"],
+    expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"],
+    max_age=600,
 )
 
 bot = Client("SimpleStreamBot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN, in_memory=True)
@@ -121,12 +121,13 @@ class ByteStreamer:
             session = await self.get_session(f.dc_id)
             loc = raw.types.InputDocumentFileLocation(id=f.media_id, access_hash=f.access_hash, file_reference=f.file_reference, thumb_size=f.thumbnail_size)
             for _ in range(pc):
-                r = await session.invoke(raw.functions.upload.GetFile(location=loc, offset=o, limit=cs))
-                if not r or not r.bytes: break
-                yield r.bytes[fc:] if _==0 else r.bytes[:lc] if _==pc-1 else r.bytes
+                try:
+                    r = await session.invoke(raw.functions.upload.GetFile(location=loc, offset=o, limit=cs))
+                    if not r or not r.bytes: break
+                    yield r.bytes[fc:] if _==0 else r.bytes[:lc] if _==pc-1 else r.bytes
+                except Exception: break
                 o += cs
-                # Optimize for speed without crashing Chrome's protocol
-                if _ % 2 == 0: await asyncio.sleep(0.001)
+                if _ % 4 == 0: await asyncio.sleep(0.01) # Small delay to prevent HTTP/2 congestion
         finally: work_loads[i] -= 1
 
 @app.get("/dl/{mid}/{fname}")
@@ -138,7 +139,7 @@ async def stream_media(r: Request, mid: int, fname: str):
         m = msg.document or msg.video
         fid = FileId.decode(m.file_id)
         rh = r.headers.get("Range", ""); fb = int(rh.replace("bytes=","").split("-")[0]) if rh else 0
-        cs = 1024 * 512 # Set back to 512 KB for best stability
+        cs = 1024 * 512 # 512 KB chunks
         off = (fb//cs)*cs; fc = fb-off; rl = m.file_size-fb
         
         return StreamingResponse(
@@ -149,10 +150,8 @@ async def stream_media(r: Request, mid: int, fname: str):
                 "Accept-Ranges": "bytes",
                 "Content-Length": str(rl),
                 "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}",
-                "X-Content-Type-Options": "nosniff",
-                "Cache-Control": "public, no-cache, no-transform",
                 "Connection": "keep-alive",
-                "Alt-Svc": "clear" # Tells Chrome to clear any HTTP/3 (QUIC) caching
+                "Cache-Control": "no-cache"
             }
         )
     except: raise HTTPException(404)
