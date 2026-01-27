@@ -61,7 +61,6 @@ async def start_cmd(client, message):
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def handle_file(client, message):
     media = message.document or message.video or message.audio
-    # Duplicate Check
     ex = await db.collection.find_one({"file_unique_id": media.file_unique_id})
     if ex:
         u_id = ex["_id"]; m_id = ex["message_id"]
@@ -69,7 +68,8 @@ async def handle_file(client, message):
         d_link = f"{Config.BASE_URL}/dl/{m_id}/{f_name}"
         return await message.reply_text(
             f"✅ **File already exists!**\n\n"
-            f"🔗 **Stream Link:**\n`{d_link}`",
+            f"🔗 **Stream Link (Click to Copy):**\n`{d_link}`\n\n"
+            f"📥 **Download Link (Click to Copy):**\n`{d_link}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}")]])
         )
     waiting_for_name[message.from_user.id] = message
@@ -82,18 +82,18 @@ async def process_name(client, message):
     orig = waiting_for_name.pop(uid)
     media = orig.document or orig.video or orig.audio
     ext = os.path.splitext(media.file_name or ".mkv")[1] or ".mkv"
-    # Cleaning name for URL stability
-    safe_name = re.sub(r'[^a-zA-Z0-9.]', '_', message.text)
-    final_name = f"moviedekhobd_{safe_name}{ext}"
+    
+    # আপনার রিকোয়েস্ট অনুযায়ী নামের ফরম্যাট: moviedekhobd.rf.gd [Name] moviedekhobd.rf.gd.ext
+    user_name = message.text.replace(" ", "_")
+    final_name = f"moviedekhobd.rf.gd_{user_name}_moviedekhobd.rf.gd{ext}"
     
     sts = await message.reply_text("🚀 **Uploading to Storage...**")
     sc = int(Config.STORAGE_CHANNEL)
     try:
-        if orig.video: sent = await bot.send_video(sc, media.file_id, caption=final_name)
-        else: sent = await bot.send_document(sc, media.file_id, caption=final_name)
+        if orig.video: sent = await bot.send_video(sc, media.file_id, file_name=final_name, caption=final_name)
+        else: sent = await bot.send_document(sc, media.file_id, file_name=final_name, caption=final_name)
         
         u_id = secrets.token_urlsafe(8)
-        # Saving filename to DB to prevent 'video.mkv' issue on other bots
         await db.collection.insert_one({
             "_id": u_id, 
             "message_id": sent.id, 
@@ -101,16 +101,17 @@ async def process_name(client, message):
             "file_name": final_name
         })
         
-        d_link = f"{Config.BASE_URL}/dl/{sent.id}/{final_name}"
+        d_link = f"{Config.BASE_URL}/dl/{sent.id}/{final_name.replace(' ', '_')}"
         await sts.delete()
         await orig.reply_text(
             f"✅ **Success! File Processed.**\n\n"
-            f"🔗 **Stream Link:**\n`{d_link}`",
+            f"🔗 **Stream Link (Click to Copy):**\n`{d_link}`\n\n"
+            f"📥 **Download Link (Click to Copy):**\n`{d_link}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}")]])
         )
     except: await message.reply_text("❌ **Failed to process file!**")
 
-# --- STREAMING ENGINE ---
+# --- OPTIMIZED STREAMING ENGINE ---
 
 class ByteStreamer:
     def __init__(self, c): self.client = c
@@ -134,15 +135,11 @@ class ByteStreamer:
             session = await self.get_session(f.dc_id)
             loc = raw.types.InputDocumentFileLocation(id=f.media_id, access_hash=f.access_hash, file_reference=f.file_reference, thumb_size=f.thumbnail_size)
             for _ in range(pc):
-                try:
-                    r = await session.invoke(raw.functions.upload.GetFile(location=loc, offset=o, limit=cs))
-                except FileMigrate as e:
-                    session = await self.get_session(e.dc_id)
-                    r = await session.invoke(raw.functions.upload.GetFile(location=loc, offset=o, limit=cs))
+                r = await session.invoke(raw.functions.upload.GetFile(location=loc, offset=o, limit=cs))
                 if not r or not r.bytes: break
                 yield r.bytes[fc:] if _==0 else r.bytes[:lc] if _==pc-1 else r.bytes
                 o += cs
-                await asyncio.sleep(0.001) # Small sleep to prevent network congestion
+                await asyncio.sleep(0.001) # Buffering optimization for slow net
         finally: work_loads[i] -= 1
 
 @app.get("/dl/{mid}/{fname}")
@@ -156,7 +153,7 @@ async def stream_media(r: Request, mid: int, fname: str):
         rh = r.headers.get("Range", ""); fb = int(rh.replace("bytes=","").split("-")[0]) if rh else 0
         cs = 1024 * 512; off = (fb//cs)*cs; fc = fb-off; rl = m.file_size-fb
         return StreamingResponse(st.yield_file(fid, idx, off, fc, 0, math.ceil(rl/cs), cs), status_code=206 if rh else 200, 
-            headers={"Content-Type": m.mime_type or "video/mp4", "Accept-Ranges": "bytes", "Content-Length": str(rl), "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}", "Connection": "keep-alive"})
+            headers={"Content-Type": m.mime_type or "video/mp4", "Accept-Ranges": "bytes", "Content-Length": str(rl), "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}", "Cache-Control": "public, max-age=3600", "Connection": "keep-alive"})
     except: raise HTTPException(404)
 
 # --- WEB PAGE ROUTES ---
@@ -169,12 +166,9 @@ async def show_page(request: Request, unique_id: str):
 async def get_api_data(unique_id: str):
     data = await db.collection.find_one({"_id": unique_id})
     if not data: return JSONResponse({"error": "Not Found"}, status_code=404)
-    
     msg = await bot.get_messages(int(Config.STORAGE_CHANNEL), data["message_id"])
     media = msg.document or msg.video
-    # Using saved filename from DB or original filename
     f_name = data.get("file_name", media.file_name or "video.mkv")
-    
     return {
         "file_name": f_name,
         "file_size": get_readable_size(media.file_size),
