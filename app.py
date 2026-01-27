@@ -83,9 +83,9 @@ async def process_name(client, message):
     media = orig.document or orig.video or orig.audio
     ext = os.path.splitext(media.file_name or ".mkv")[1] or ".mkv"
     
-    # আপনার রিকোয়েস্ট অনুযায়ী নামের ফরম্যাট: moviedekhobd.rf.gd [Name] moviedekhobd.rf.gd.ext
-    user_name = message.text.replace(" ", "_")
-    final_name = f"moviedekhobd.rf.gd_{user_name}_moviedekhobd.rf.gd{ext}"
+    # আপনার রিকোয়েস্ট অনুযায়ী নামের ফরম্যাট
+    user_input = message.text.replace(" ", "_")
+    final_name = f"moviedekhobd.rf.gd_{user_input}_moviedekhobd.rf.gd{ext}"
     
     sts = await message.reply_text("🚀 **Uploading to Storage...**")
     sc = int(Config.STORAGE_CHANNEL)
@@ -101,7 +101,7 @@ async def process_name(client, message):
             "file_name": final_name
         })
         
-        d_link = f"{Config.BASE_URL}/dl/{sent.id}/{final_name.replace(' ', '_')}"
+        d_link = f"{Config.BASE_URL}/dl/{sent.id}/{final_name}"
         await sts.delete()
         await orig.reply_text(
             f"✅ **Success! File Processed.**\n\n"
@@ -111,7 +111,7 @@ async def process_name(client, message):
         )
     except: await message.reply_text("❌ **Failed to process file!**")
 
-# --- OPTIMIZED STREAMING ENGINE ---
+# --- HIGH-SPEED STREAMING ENGINE ---
 
 class ByteStreamer:
     def __init__(self, c): self.client = c
@@ -139,7 +139,7 @@ class ByteStreamer:
                 if not r or not r.bytes: break
                 yield r.bytes[fc:] if _==0 else r.bytes[:lc] if _==pc-1 else r.bytes
                 o += cs
-                await asyncio.sleep(0.001) # Buffering optimization for slow net
+                await asyncio.sleep(0.001) 
         finally: work_loads[i] -= 1
 
 @app.get("/dl/{mid}/{fname}")
@@ -153,7 +153,14 @@ async def stream_media(r: Request, mid: int, fname: str):
         rh = r.headers.get("Range", ""); fb = int(rh.replace("bytes=","").split("-")[0]) if rh else 0
         cs = 1024 * 512; off = (fb//cs)*cs; fc = fb-off; rl = m.file_size-fb
         return StreamingResponse(st.yield_file(fid, idx, off, fc, 0, math.ceil(rl/cs), cs), status_code=206 if rh else 200, 
-            headers={"Content-Type": m.mime_type or "video/mp4", "Accept-Ranges": "bytes", "Content-Length": str(rl), "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}", "Cache-Control": "public, max-age=3600", "Connection": "keep-alive"})
+            headers={
+                "Content-Type": m.mime_type or "video/mp4", 
+                "Accept-Ranges": "bytes", 
+                "Content-Length": str(rl), 
+                "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}",
+                "Connection": "keep-alive",
+                "Cache-Control": "no-cache"
+            })
     except: raise HTTPException(404)
 
 # --- WEB PAGE ROUTES ---
