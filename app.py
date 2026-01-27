@@ -65,12 +65,11 @@ async def handle_file(client, message):
     ex = await db.collection.find_one({"file_unique_id": media.file_unique_id})
     if ex:
         u_id = ex["_id"]; m_id = ex["message_id"]
-        # Fetching original name for the link
-        d_link = f"{Config.BASE_URL}/dl/{m_id}/video.mkv"
+        f_name = ex.get("file_name", "video.mkv").replace(" ", "_")
+        d_link = f"{Config.BASE_URL}/dl/{m_id}/{f_name}"
         return await message.reply_text(
             f"✅ **File already exists!**\n\n"
-            f"🔗 **Stream Link:**\n`{d_link}`\n\n"
-            f"📥 **Download Link:**\n`{d_link}`",
+            f"🔗 **Stream Link:**\n`{d_link}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}")]])
         )
     waiting_for_name[message.from_user.id] = message
@@ -83,24 +82,30 @@ async def process_name(client, message):
     orig = waiting_for_name.pop(uid)
     media = orig.document or orig.video or orig.audio
     ext = os.path.splitext(media.file_name or ".mkv")[1] or ".mkv"
-    final_name = f"moviedekhobd.rf.gd {message.text} moviedekhobd.rf.gd{ext}"
+    # Cleaning name for URL stability
+    safe_name = re.sub(r'[^a-zA-Z0-9.]', '_', message.text)
+    final_name = f"moviedekhobd_{safe_name}{ext}"
     
     sts = await message.reply_text("🚀 **Uploading to Storage...**")
     sc = int(Config.STORAGE_CHANNEL)
     try:
-        # Upload without backticks to keep storage name normal
-        if orig.video: sent = await bot.send_video(sc, media.file_id, file_name=final_name, caption=final_name)
-        else: sent = await bot.send_document(sc, media.file_id, file_name=final_name, caption=final_name)
+        if orig.video: sent = await bot.send_video(sc, media.file_id, caption=final_name)
+        else: sent = await bot.send_document(sc, media.file_id, caption=final_name)
         
         u_id = secrets.token_urlsafe(8)
-        await db.collection.insert_one({"_id": u_id, "message_id": sent.id, "file_unique_id": media.file_unique_id})
-        d_link = f"{Config.BASE_URL}/dl/{sent.id}/{final_name.replace(' ', '_')}"
+        # Saving filename to DB to prevent 'video.mkv' issue on other bots
+        await db.collection.insert_one({
+            "_id": u_id, 
+            "message_id": sent.id, 
+            "file_unique_id": media.file_unique_id,
+            "file_name": final_name
+        })
         
+        d_link = f"{Config.BASE_URL}/dl/{sent.id}/{final_name}"
         await sts.delete()
         await orig.reply_text(
             f"✅ **Success! File Processed.**\n\n"
-            f"🔗 **Stream Link (Click to Copy):**\n`{d_link}`\n\n"
-            f"📥 **Download Link (Click to Copy):**\n`{d_link}`",
+            f"🔗 **Stream Link:**\n`{d_link}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}")]])
         )
     except: await message.reply_text("❌ **Failed to process file!**")
@@ -116,8 +121,10 @@ class ByteStreamer:
                 auth = await Auth(self.client, dc_id, await self.client.storage.test_mode()).create()
                 session = Session(self.client, dc_id, auth, await self.client.storage.test_mode(), is_media=True)
                 await session.start()
-                exp = await self.client.invoke(raw.functions.auth.ExportAuthorization(dc_id=dc_id))
-                await session.invoke(raw.functions.auth.ImportAuthorization(id=exp.id, bytes=exp.bytes))
+                try:
+                    exp = await self.client.invoke(raw.functions.auth.ExportAuthorization(dc_id=dc_id))
+                    await session.invoke(raw.functions.auth.ImportAuthorization(id=exp.id, bytes=exp.bytes))
+                except: pass
             self.client.media_sessions[dc_id] = session
         return self.client.media_sessions[dc_id]
 
@@ -127,13 +134,15 @@ class ByteStreamer:
             session = await self.get_session(f.dc_id)
             loc = raw.types.InputDocumentFileLocation(id=f.media_id, access_hash=f.access_hash, file_reference=f.file_reference, thumb_size=f.thumbnail_size)
             for _ in range(pc):
-                try: r = await session.invoke(raw.functions.upload.GetFile(location=loc, offset=o, limit=cs))
+                try:
+                    r = await session.invoke(raw.functions.upload.GetFile(location=loc, offset=o, limit=cs))
                 except FileMigrate as e:
                     session = await self.get_session(e.dc_id)
                     r = await session.invoke(raw.functions.upload.GetFile(location=loc, offset=o, limit=cs))
-                if not r.bytes: break
+                if not r or not r.bytes: break
                 yield r.bytes[fc:] if _==0 else r.bytes[:lc] if _==pc-1 else r.bytes
                 o += cs
+                await asyncio.sleep(0.001) # Small sleep to prevent network congestion
         finally: work_loads[i] -= 1
 
 @app.get("/dl/{mid}/{fname}")
@@ -147,7 +156,7 @@ async def stream_media(r: Request, mid: int, fname: str):
         rh = r.headers.get("Range", ""); fb = int(rh.replace("bytes=","").split("-")[0]) if rh else 0
         cs = 1024 * 512; off = (fb//cs)*cs; fc = fb-off; rl = m.file_size-fb
         return StreamingResponse(st.yield_file(fid, idx, off, fc, 0, math.ceil(rl/cs), cs), status_code=206 if rh else 200, 
-            headers={"Content-Type": m.mime_type or "video/mp4", "Accept-Ranges": "bytes", "Content-Length": str(rl), "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}"})
+            headers={"Content-Type": m.mime_type or "video/mp4", "Accept-Ranges": "bytes", "Content-Length": str(rl), "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}", "Connection": "keep-alive"})
     except: raise HTTPException(404)
 
 # --- WEB PAGE ROUTES ---
@@ -161,15 +170,16 @@ async def get_api_data(unique_id: str):
     data = await db.collection.find_one({"_id": unique_id})
     if not data: return JSONResponse({"error": "Not Found"}, status_code=404)
     
-    # Get file details from Storage Channel
     msg = await bot.get_messages(int(Config.STORAGE_CHANNEL), data["message_id"])
     media = msg.document or msg.video
+    # Using saved filename from DB or original filename
+    f_name = data.get("file_name", media.file_name or "video.mkv")
     
     return {
-        "file_name": media.file_name,
+        "file_name": f_name,
         "file_size": get_readable_size(media.file_size),
-        "is_media": True if msg.video or msg.document.mime_type.startswith("video/") else False,
-        "direct_dl_link": f"{Config.BASE_URL}/dl/{data['message_id']}/{media.file_name.replace(' ', '_')}"
+        "is_media": True,
+        "direct_dl_link": f"{Config.BASE_URL}/dl/{data['message_id']}/{f_name.replace(' ', '_')}"
     }
 
 if __name__ == "__main__":
