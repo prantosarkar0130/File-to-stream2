@@ -47,16 +47,9 @@ def get_readable_size(size):
         size /= 1024
 
 # --- BOT HANDLERS ---
-
 @bot.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
-    await message.reply_text(
-        f"👋 **Hello {message.from_user.first_name}!**\n\n"
-        "🤖 I am a High-Speed Video Streaming Bot.\n"
-        "📂 Just send me any file or video to get your link.\n\n"
-        "⚡ **Powered by MovieDekhoBD**",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 Support Group", url="https://t.me/your_link")]])
-    )
+    await message.reply_text(f"👋 **Hello {message.from_user.first_name}!**\n\n📂 Send me any video for high-speed streaming links.")
 
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def handle_file(client, message):
@@ -67,9 +60,7 @@ async def handle_file(client, message):
         f_name = ex.get("file_name", "video.mkv").replace(" ", "_")
         d_link = f"{Config.BASE_URL}/dl/{m_id}/{f_name}"
         return await message.reply_text(
-            f"✅ **File already exists!**\n\n"
-            f"🔗 **Stream Link (Click to Copy):**\n`{d_link}`\n\n"
-            f"📥 **Download Link (Click to Copy):**\n`{d_link}`",
+            f"✅ **File already exists!**\n\n🔗 **Stream Link:**\n`{d_link}`\n\n📥 **Download Link:**\n`{d_link}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}")]])
         )
     waiting_for_name[message.from_user.id] = message
@@ -82,37 +73,24 @@ async def process_name(client, message):
     orig = waiting_for_name.pop(uid)
     media = orig.document or orig.video or orig.audio
     ext = os.path.splitext(media.file_name or ".mkv")[1] or ".mkv"
-    
-    # আপনার রিকোয়েস্ট অনুযায়ী নামের ফরম্যাট
     user_input = message.text.replace(" ", "_")
     final_name = f"moviedekhobd.rf.gd_{user_input}_moviedekhobd.rf.gd{ext}"
     
     sts = await message.reply_text("🚀 **Uploading to Storage...**")
     sc = int(Config.STORAGE_CHANNEL)
     try:
-        if orig.video: sent = await bot.send_video(sc, media.file_id, file_name=final_name, caption=final_name)
-        else: sent = await bot.send_document(sc, media.file_id, file_name=final_name, caption=final_name)
-        
+        sent = await bot.send_video(sc, media.file_id, file_name=final_name, caption=final_name) if orig.video else await bot.send_document(sc, media.file_id, file_name=final_name, caption=final_name)
         u_id = secrets.token_urlsafe(8)
-        await db.collection.insert_one({
-            "_id": u_id, 
-            "message_id": sent.id, 
-            "file_unique_id": media.file_unique_id,
-            "file_name": final_name
-        })
-        
+        await db.collection.insert_one({"_id": u_id, "message_id": sent.id, "file_unique_id": media.file_unique_id, "file_name": final_name})
         d_link = f"{Config.BASE_URL}/dl/{sent.id}/{final_name}"
         await sts.delete()
         await orig.reply_text(
-            f"✅ **Success! File Processed.**\n\n"
-            f"🔗 **Stream Link (Click to Copy):**\n`{d_link}`\n\n"
-            f"📥 **Download Link (Click to Copy):**\n`{d_link}`",
+            f"✅ **Success!**\n\n🔗 **Stream Link:**\n`{d_link}`\n\n📥 **Download Link:**\n`{d_link}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}")]])
         )
-    except: await message.reply_text("❌ **Failed to process file!**")
+    except: await message.reply_text("❌ **Failed!**")
 
-# --- HIGH-SPEED STREAMING ENGINE ---
-
+# --- ULTRA-FAST STREAMING ENGINE ---
 class ByteStreamer:
     def __init__(self, c): self.client = c
     async def get_session(self, dc_id):
@@ -139,7 +117,8 @@ class ByteStreamer:
                 if not r or not r.bytes: break
                 yield r.bytes[fc:] if _==0 else r.bytes[:lc] if _==pc-1 else r.bytes
                 o += cs
-                await asyncio.sleep(0.001) 
+                # High speed optimization: minimal sleep
+                if _ % 5 == 0: await asyncio.sleep(0.001)
         finally: work_loads[i] -= 1
 
 @app.get("/dl/{mid}/{fname}")
@@ -151,19 +130,21 @@ async def stream_media(r: Request, mid: int, fname: str):
         m = msg.document or msg.video
         fid = FileId.decode(m.file_id)
         rh = r.headers.get("Range", ""); fb = int(rh.replace("bytes=","").split("-")[0]) if rh else 0
-        cs = 1024 * 512; off = (fb//cs)*cs; fc = fb-off; rl = m.file_size-fb
-        return StreamingResponse(st.yield_file(fid, idx, off, fc, 0, math.ceil(rl/cs), cs), status_code=206 if rh else 200, 
-            headers={
-                "Content-Type": m.mime_type or "video/mp4", 
-                "Accept-Ranges": "bytes", 
-                "Content-Length": str(rl), 
-                "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}",
-                "Connection": "keep-alive",
-                "Cache-Control": "no-cache"
-            })
+        cs = 1024 * 1024 # Increased chunk size to 1MB for faster loading
+        off = (fb//cs)*cs; fc = fb-off; rl = m.file_size-fb
+        
+        # Anti-QUIC & Buffer headers
+        headers = {
+            "Content-Type": m.mime_type or "video/mp4",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(rl),
+            "Content-Range": f"bytes {fb}-{m.file_size-1}/{m.file_size}",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive"
+        }
+        return StreamingResponse(st.yield_file(fid, idx, off, fc, 0, math.ceil(rl/cs), cs), status_code=206 if rh else 200, headers=headers)
     except: raise HTTPException(404)
-
-# --- WEB PAGE ROUTES ---
 
 @app.get("/show/{unique_id}", response_class=HTMLResponse)
 async def show_page(request: Request, unique_id: str):
@@ -176,12 +157,7 @@ async def get_api_data(unique_id: str):
     msg = await bot.get_messages(int(Config.STORAGE_CHANNEL), data["message_id"])
     media = msg.document or msg.video
     f_name = data.get("file_name", media.file_name or "video.mkv")
-    return {
-        "file_name": f_name,
-        "file_size": get_readable_size(media.file_size),
-        "is_media": True,
-        "direct_dl_link": f"{Config.BASE_URL}/dl/{data['message_id']}/{f_name.replace(' ', '_')}"
-    }
+    return {"file_name": f_name, "file_size": get_readable_size(media.file_size), "is_media": True, "direct_dl_link": f"{Config.BASE_URL}/dl/{data['message_id']}/{f_name}"}
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=10000)
