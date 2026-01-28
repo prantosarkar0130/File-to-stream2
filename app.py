@@ -69,27 +69,27 @@ def get_readable_size(size):
 @bot.on_message(filters.command("start") & filters.private)
 async def start_cmd(_, m):
     await m.reply_text(
-        f"👋 Hello {m.from_user.first_name}\n\nSend video to get stream link"
+        f"👋 Hello {m.from_user.first_name}\n\nSend any video/file to get stream link"
     )
 
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def handle_file(_, m):
     media = m.document or m.video or m.audio
-    ex = await db.collection.find_one({"file_unique_id": media.file_unique_id})
 
+    ex = await db.collection.find_one({"file_unique_id": media.file_unique_id})
     if ex:
         uid = ex["_id"]
         fname = ex["file_name"]
         link = f"{Config.BASE_URL}/dl/{ex['message_id']}/{fname}"
         return await m.reply_text(
-            f"🔗 `{link}`",
+            f"✅ **Already Exists**\n\n🔗 `{link}`",
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("▶️ Watch", url=f"{Config.BASE_URL}/show/{uid}")]]
             )
         )
 
     waiting_for_name[m.from_user.id] = m
-    await m.reply_text("📝 Send file name")
+    await m.reply_text("📝 **Send file name**")
 
 @bot.on_message(filters.private & filters.text)
 async def process_name(_, m):
@@ -98,32 +98,50 @@ async def process_name(_, m):
         return
 
     orig = waiting_for_name.pop(uid)
-    media = orig.document or orig.video
+    media = orig.document or orig.video or orig.audio
+
     ext = os.path.splitext(media.file_name or ".mp4")[1]
     name = re.sub(r"\s+", "_", m.text)
     final_name = f"moviedekhobd_{name}{ext}"
 
-    msg = await bot.send_document(
-        int(Config.STORAGE_CHANNEL),
-        media.file_id,
-        file_name=final_name
-    )
+    try:
+        # 🔥 FIX: media type safe upload
+        if orig.video:
+            msg = await bot.send_video(
+                int(Config.STORAGE_CHANNEL),
+                media.file_id,
+                file_name=final_name,
+                caption=final_name
+            )
+        else:
+            msg = await bot.send_document(
+                int(Config.STORAGE_CHANNEL),
+                media.file_id,
+                file_name=final_name,
+                caption=final_name
+            )
 
-    u_id = secrets.token_urlsafe(8)
-    await db.collection.insert_one({
-        "_id": u_id,
-        "message_id": msg.id,
-        "file_unique_id": media.file_unique_id,
-        "file_name": final_name
-    })
+        u_id = secrets.token_urlsafe(8)
 
-    link = f"{Config.BASE_URL}/dl/{msg.id}/{final_name}"
-    await orig.reply_text(
-        f"✅ `{link}`",
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("▶️ Watch", url=f"{Config.BASE_URL}/show/{u_id}")]]
+        await db.collection.insert_one({
+            "_id": u_id,
+            "message_id": msg.id,
+            "file_unique_id": media.file_unique_id,
+            "file_name": final_name
+        })
+
+        link = f"{Config.BASE_URL}/dl/{msg.id}/{final_name}"
+
+        await orig.reply_text(
+            f"✅ **Upload Successful**\n\n🔗 `{link}`",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("▶️ Watch", url=f"{Config.BASE_URL}/show/{u_id}")]]
+            )
         )
-    )
+
+    except Exception as e:
+        print(e)
+        await orig.reply_text("❌ Upload failed")
 
 # ─────────────────── STREAM ENGINE ───────────────────
 class ByteStreamer:
@@ -202,7 +220,7 @@ async def stream_media(req: Request, mid: int, fname: str):
     finally:
         work_load -= 1
 
-# ─────────────────── SHOW PAGE ───────────────────
+# ─────────────────── PAGES / API ───────────────────
 @app.get("/show/{uid}", response_class=HTMLResponse)
 async def show_page(req: Request, uid: str):
     return templates.TemplateResponse("show.html", {"request": req, "id": uid})
