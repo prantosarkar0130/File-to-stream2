@@ -4,6 +4,7 @@ from pyrogram import Client, filters, raw
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.file_id import FileId
 from pyrogram.session import Session, Auth
+from pyrogram.errors import FloodWait
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse
@@ -12,44 +13,30 @@ from config import Config
 from database import db
 
 waiting_for_name = {}
-multi_clients = {}
-work_loads = {}
-class_cache = {}
+work_load = 0
+stream_cache = {}
 
-# ─────────────────── FASTAPI LIFESPAN ───────────────────
+# ─────────────────── LIFESPAN ───────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.connect()
-    await bot.start()
-    me = await bot.get_me()
-    Config.BOT_USERNAME = me.username
-
-    multi_clients[0] = bot
-    work_loads[0] = 0
-
-    tokens = {
-        i + 1: t for i, (_, t) in enumerate(
-            filter(lambda x: x[0].startswith("MULTI_TOKEN"), sorted(os.environ.items()))
-        )
-    }
-
-    for i, token in tokens.items():
+    try:
         try:
-            c = await Client(
-                name=str(i),
-                api_id=Config.API_ID,
-                api_hash=Config.API_HASH,
-                bot_token=token,
-                no_updates=True,
-                in_memory=True
-            ).start()
-            multi_clients[i] = c
-            work_loads[i] = 0
-        except:
-            pass
+            await bot.start()
+        except FloodWait as e:
+            print(f"⏳ FloodWait {e.value}s")
+            await asyncio.sleep(e.value)
+            await bot.start()
 
-    print(f"🚀 Bot @{Config.BOT_USERNAME} Live")
+        me = await bot.get_me()
+        Config.BOT_USERNAME = me.username
+        print(f"✅ Bot @{Config.BOT_USERNAME} started")
+
+    except Exception:
+        print(traceback.format_exc())
+
     yield
+
     if bot.is_initialized:
         await bot.stop()
 
@@ -73,12 +60,12 @@ bot = Client(
 )
 
 def get_readable_size(size):
-    for unit in ['B','KB','MB','GB','TB']:
+    for u in ["B", "KB", "MB", "GB", "TB"]:
         if size < 1024:
-            return f"{size:.2f} {unit}"
+            return f"{size:.2f} {u}"
         size /= 1024
 
-# ─────────────────── BOT PART (UNCHANGED) ───────────────────
+# ─────────────────── BOT ───────────────────
 @bot.on_message(filters.command("start") & filters.private)
 async def start_cmd(_, m):
     await m.reply_text(
@@ -89,6 +76,7 @@ async def start_cmd(_, m):
 async def handle_file(_, m):
     media = m.document or m.video or m.audio
     ex = await db.collection.find_one({"file_unique_id": media.file_unique_id})
+
     if ex:
         uid = ex["_id"]
         fname = ex["file_name"]
@@ -137,7 +125,7 @@ async def process_name(_, m):
         )
     )
 
-# ─────────────────── STREAM ENGINE (FIXED) ───────────────────
+# ─────────────────── STREAM ENGINE ───────────────────
 class ByteStreamer:
     def __init__(self, client):
         self.client = client
@@ -176,12 +164,11 @@ class ByteStreamer:
 # ─────────────────── STREAM ROUTE ───────────────────
 @app.get("/dl/{mid}/{fname}")
 async def stream_media(req: Request, mid: int, fname: str):
-    idx = min(work_loads, key=work_loads.get)
-    client = multi_clients[idx]
-    work_loads[idx] += 1
+    global work_load
+    work_load += 1
 
     try:
-        msg = await client.get_messages(int(Config.STORAGE_CHANNEL), mid)
+        msg = await bot.get_messages(int(Config.STORAGE_CHANNEL), mid)
         media = msg.document or msg.video
         file = FileId.decode(media.file_id)
 
@@ -197,7 +184,8 @@ async def stream_media(req: Request, mid: int, fname: str):
             end = int(end) if end else size - 1
 
         chunk = 1024 * 1024  # 1MB
-        streamer = ByteStreamer(client)
+        streamer = stream_cache.get(bot) or ByteStreamer(bot)
+        stream_cache[bot] = streamer
 
         headers = {
             "Accept-Ranges": "bytes",
@@ -212,7 +200,7 @@ async def stream_media(req: Request, mid: int, fname: str):
             headers=headers
         )
     finally:
-        work_loads[idx] -= 1
+        work_load -= 1
 
 # ─────────────────── SHOW PAGE ───────────────────
 @app.get("/show/{uid}", response_class=HTMLResponse)
