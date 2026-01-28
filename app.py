@@ -10,29 +10,26 @@ from fastapi.templating import Jinja2Templates
 from config import Config
 from database import db
 
-# সেশন ডিরেক্টরি তৈরি (Docker-এ সেশন ধরে রাখার জন্য)
-if not os.path.exists("sessions"):
-    os.makedirs("sessions")
-
+# Global variables
 multi_clients = {}; work_loads = {}; waiting_for_name = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.connect()
     try:
-        # মেইন বট স্টার্ট
+        # Bot start (in_memory=True rakha holo jate Docker-e session file-er jhamela na hoy)
         await bot.start()
         multi_clients[0] = bot; work_loads[0] = 0
         
-        # মাল্টি-বট কানেক্ট
+        # MULTI_TOKEN configuration
         for i in range(1, 11):
             token = os.environ.get(f"MULTI_TOKEN_{i}")
             if token:
                 try:
-                    c = await Client(name=f"sessions/bot{i}", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=token, no_updates=True).start()
+                    c = await Client(name=f"bot{i}", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=token, no_updates=True, in_memory=True).start()
                     multi_clients[i] = c; work_loads[i] = 0
                 except: pass
-        print("✅ Bot is Online and Database Connected!")
+        print("✅ Bot is Online and Listening for messages...")
     except: print(traceback.format_exc())
     yield
     if bot.is_initialized: await bot.stop()
@@ -41,14 +38,16 @@ app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# মেইন বট (in_memory সরিয়ে ডিরেক্টরি দেওয়া হয়েছে যাতে Docker-এ সেশন না হারায়)
-bot = Client("sessions/main_bot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN)
+# Main Bot Client
+bot = Client("main_bot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN, in_memory=True)
 
 # --- BOT HANDLERS ---
 
 @bot.on_message(filters.command("start") & filters.private)
 async def start_cmd(c, m):
-    await m.reply_text(f"👋 **Hello {m.from_user.first_name}!**\nআমি অনলাইনে আছি। যেকোনো ভিডিও পাঠান লিঙ্ক দেওয়ার জন্য।")
+    try:
+        await m.reply_text(f"👋 **Hello {m.from_user.first_name}!**\nBot online ache. Video pathan link-er jonno.")
+    except Exception as e: print(f"Error in start: {e}")
 
 @bot.on_message(filters.private & (filters.document | filters.video))
 async def handle_file(c, m):
@@ -58,11 +57,11 @@ async def handle_file(c, m):
         u_id = ex["_id"]; m_id = ex["message_id"]
         f_name = ex.get("file_name", "video.mkv")
         d_link = f"{Config.BASE_URL}/dl/{m_id}/{f_name}"
-        return await m.reply_text(f"✅ **আগে থেকেই আছে!**\n\n🔗 **লিঙ্ক:** `{d_link}`", 
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ অনলাইনে দেখুন", url=f"{Config.BASE_URL}/show/{u_id}")]]))
+        return await m.reply_text(f"✅ **Ager file-i pawa geche!**\n\n🔗 **Link:** `{d_link}`", 
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}")]]))
     
     waiting_for_name[m.from_user.id] = m
-    await m.reply_text("📝 **ভিডিওটির একটি নাম লিখে পাঠান:**")
+    await m.reply_text("📝 **Video-tir ekta name likhe pathan:**")
 
 @bot.on_message(filters.private & filters.text & ~filters.command("start"))
 async def process_name(c, m):
@@ -76,7 +75,7 @@ async def process_name(c, m):
     user_input = m.text.replace(" ", "_")
     final_name = f"moviedekhobd.rf.gd_{user_input}_moviedekhobd.rf.gd{ext}"
     
-    sts = await m.reply_text("🚀 **প্রসেসিং হচ্ছে...**")
+    sts = await m.reply_text("🚀 **Upload hochche...**")
     try:
         sc = int(Config.STORAGE_CHANNEL)
         sent = await bot.send_video(sc, media.file_id, file_name=final_name) if orig.video else await bot.send_document(sc, media.file_id, file_name=final_name)
@@ -86,12 +85,13 @@ async def process_name(c, m):
         
         d_link = f"{Config.BASE_URL}/dl/{sent.id}/{final_name}"
         await sts.delete()
-        await m.reply_text(f"✅ **সফল হয়েছে!**\n\n🔗 **লিঙ্ক:** `{d_link}`", 
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ অনলাইনে দেখুন", url=f"{Config.BASE_URL}/show/{u_id}")]]))
+        await m.reply_text(f"✅ **Success!**\n\n🔗 **Link:** `{d_link}`", 
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}")]]))
     except Exception as e:
-        await m.reply_text("❌ কিছু একটা ভুল হয়েছে।")
+        print(f"Error: {e}")
+        await m.reply_text("❌ Upload failed!")
 
-# --- STREAMING ENGINE ---
+# --- FAST STREAMING ENGINE ---
 
 async def data_generator(f_id, idx, offset, limit, chunk_size):
     client = multi_clients.get(idx, bot)
@@ -129,10 +129,8 @@ async def api_file(id: str):
     if not data: return JSONResponse({"error": "Not Found"}, status_code=404)
     return {"direct_dl_link": f"{Config.BASE_URL}/dl/{data['message_id']}/{data.get('file_name', 'video.mkv')}", "file_name": data.get("file_name", "video.mkv")}
 
-# Health Check (404 এরর কমানোর জন্য)
 @app.get("/")
-async def health():
-    return {"status": "running"}
+async def health(): return {"status": "ok"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=10000)
