@@ -199,10 +199,14 @@ async def stream_media(r: Request, mid: int, fname: str):
         pc = math.ceil(rl / cs)
 
         headers = {
-            "Content-Type": m.mime_type or "video/x-matroska",
+            "Content-Type": "video/mp4" if m.file_name.endswith('.mp4') else "video/webm" if m.file_name.endswith('.webm') else "video/mp4",
             "Accept-Ranges": "bytes",
             "Content-Length": str(rl),
-            "Content-Disposition": f'inline; filename="{m.file_name}"'
+            "Content-Range": f"bytes {fb}-{ub}/{size}" if rh else None,
+            "Content-Disposition": "inline",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Range, Content-Type"
         }
         if rh: headers["Content-Range"] = f"bytes {fb}-{ub}/{size}"
 
