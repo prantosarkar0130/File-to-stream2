@@ -1,10 +1,11 @@
-# app.py (Final Streaming-Ready Version)
+# app.py (Final Streaming-Ready Version with URL & OPTIONS fix)
 import os
 import asyncio
 import secrets
 import traceback
 import math
 from contextlib import asynccontextmanager
+from urllib.parse import quote  # ===== ADD =====
 
 from pyrogram import Client, filters, enums, raw
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -95,7 +96,7 @@ async def file_handler(_, message: Message):
         msg_id = existing["message_id"]
         f_name = existing.get("file_name", "video.mkv")
 
-        direct_link = f"{Config.BASE_URL}/dl/{msg_id}/{sanitize_filename(f_name)}"
+        direct_link = f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(f_name))}"  # ===== UPDATE =====
         btn = InlineKeyboardMarkup(
             [
                 [
@@ -153,9 +154,7 @@ async def process_name(client, message):
             }
         )
 
-        direct_link = (
-            f"{Config.BASE_URL}/dl/{msg_id}/{sanitize_filename(final_file_name)}"
-        )
+        direct_link = f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(final_file_name))}"  # ===== UPDATE =====
 
         btn = InlineKeyboardMarkup(
             [
@@ -309,6 +308,19 @@ async def stream_media(r: Request, mid: int, fname: str):
         )
     except Exception:
         raise HTTPException(404)
+
+
+# ===== OPTIONS route for preflight fix =====
+@app.options("/dl/{mid}/{fname}")
+async def options_dl(mid: int, fname: str):
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Range, Content-Type",
+        },
+    )
 
 
 # ==============================================
