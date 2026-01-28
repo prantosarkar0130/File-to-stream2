@@ -184,13 +184,26 @@ async def stream_media(r: Request, mid: int, fname: str):
         fid = FileId.decode(m.file_id)
         size = m.file_size
 
+        # ===== MIME TYPE FIX =====
+        # এখানে MIME fix বসানো হয়েছে, এখন MKV / MP4 / WEBM ঠিক handle হবে
+        fname_lower = (m.file_name or "").lower()
+        if fname_lower.endswith(".mp4"):
+            content_type = "video/mp4"
+        elif fname_lower.endswith(".mkv"):
+            content_type = "video/x-matroska"
+        elif fname_lower.endswith(".webm"):
+            content_type = "video/webm"
+        else:
+            content_type = "application/octet-stream"
+
         # Range headers
         rh = r.headers.get("Range", "")
         fb, ub = 0, size - 1
         if rh:
             parts = rh.replace("bytes=", "").split("-")
             fb = int(parts[0])
-            if len(parts) > 1 and parts[1]: ub = int(parts[1])
+            if len(parts) > 1 and parts[1]:
+                ub = int(parts[1])
         rl = ub - fb + 1
         cs = 1024 * 512  # 512 KB chunk
         off = (fb // cs) * cs
@@ -198,24 +211,28 @@ async def stream_media(r: Request, mid: int, fname: str):
         lc = (ub % cs) + 1
         pc = math.ceil(rl / cs)
 
+        # ===== HEADERS =====
         headers = {
-            "Content-Type": "video/mp4" if m.file_name.endswith('.mp4') else "video/webm" if m.file_name.endswith('.webm') else "video/mp4",
-            "Accept-Ranges": "bytes",
-            "Content-Length": str(rl),
-            "Content-Range": f"bytes {fb}-{ub}/{size}" if rh else None,
-            "Content-Disposition": "inline",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Range, Content-Type"
-        }
-        if rh: headers["Content-Range"] = f"bytes {fb}-{ub}/{size}"
+    "Content-Type": content_type,
+    "Accept-Ranges": "bytes",
+    "Content-Length": str(rl),
+    "Content-Disposition": "inline",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Range, Content-Type",
+    "Cache-Control": "public, max-age=86400",
+    }
 
-        return StreamingResponse(st.yield_file(fid, idx, off, fc, lc, pc, cs),
-                                 status_code=206 if rh else 200,
-                                 headers=headers)
+     if rh:
+    headers["Content-Range"] = f"bytes {fb}-{ub}/{size}"
+
+        return StreamingResponse(
+            st.yield_file(fid, idx, off, fc, lc, pc, cs),
+            status_code=206 if rh else 200,
+            headers=headers
+        )
     except Exception:
         raise HTTPException(404)
-
 # ==============================================
 # SHOW PAGE
 # ==============================================
