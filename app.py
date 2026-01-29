@@ -134,7 +134,7 @@ async def process_name(client, message):
     user_input_name = message.text.replace(" ", "_")
     original_name = getattr(media, "file_name", "video.mkv") or "video.mkv"
     ext = os.path.splitext(original_name)[1] or ".mkv"
-    final_file_name = f"[Moviedekhobd.rf.gd] {user_input_name}[Moviedekhobd.rf.gd]{ext}"
+    final_file_name = f"[Moviedekhobd.rf.gd] {user_input_name} [Moviedekhobd.rf.gd]{ext}"
 
     sts = await message.reply_text("🚀 **Storing in progress...**")
 
@@ -144,7 +144,7 @@ async def process_name(client, message):
         # তাই আমরা কপি করছি এবং ক্যাপশন দিচ্ছি যেন আপনি সহজে খুজে পান
         sent = await orig_msg.copy(
             chat_id=int(Config.STORAGE_CHANNEL),
-            caption=f"Name: {final_file_name}",  # নরমাল টেক্সট ক্যাপশন
+            caption=f"Name: {user_input_name}",  # নরমাল টেক্সট ক্যাপশন
         )
 
         u_id = secrets.token_urlsafe(8)
