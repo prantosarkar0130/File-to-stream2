@@ -89,33 +89,36 @@ async def start_cmd(_, message: Message):
 async def file_handler(_, message: Message):
     media = message.document or message.video or message.audio
 
-    # --- ডুপ্লিকেট চেক ---
+    # --- ডাটাবেসে চেক ---
     existing = await db.collection.find_one({"file_unique_id": media.file_unique_id})
+
     if existing:
         u_id = existing["_id"]
         msg_id = existing["message_id"]
         f_name = existing.get("file_name", "video.mkv")
 
-        # বর্তমান বটের ডোমেইন দিয়ে লিঙ্ক
-        direct_link = (
+        # এই বটের নিজস্ব লিঙ্ক তৈরি
+        my_direct_link = (
             f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(f_name))}"
         )
 
-        # স্টোরেজ চ্যানেলে এই বটের লিঙ্ক অ্যাড করার চেষ্টা (Edit Caption)
         try:
+            # স্টোরেজ চ্যানেলের সেই মেসেজটি আনা
             target_msg = await bot.get_messages(int(Config.STORAGE_CHANNEL), msg_id)
-            caption = target_msg.caption or ""
+            old_caption = target_msg.caption or ""
 
-            # যদি এই বটের লিঙ্ক আগে থেকেই না থাকে, তবে শেষে অ্যাড করো
-            if Config.BASE_URL not in caption:
-                new_caption = f"{caption}\nLink: {direct_link}"
+            # যদি এই বটের লিঙ্ক আগে থেকে ক্যাপশনে না থাকে, তবেই আপডেট হবে
+            if Config.BASE_URL not in old_caption:
+                # আগের ক্যাপশন ঠিক রেখে নতুন লাইন যোগ করা
+                new_caption = f"{old_caption}\nLink: {my_direct_link}"
+
                 await bot.edit_message_caption(
                     chat_id=int(Config.STORAGE_CHANNEL),
                     message_id=msg_id,
                     caption=new_caption,
                 )
-        except Exception:
-            pass  # মেসেজ এডিট না হলেও ভিডিও লিঙ্ক ইউজারকে দেবে
+        except Exception as e:
+            print(f"Edit error: {e}")
 
         btn = InlineKeyboardMarkup(
             [
@@ -127,12 +130,12 @@ async def file_handler(_, message: Message):
             ]
         )
         return await message.reply_text(
-            f"✅ **File already exists!**\n\n🔗 My Link: `{direct_link}`",
+            f"✅ **File already exists!**\n\n🔗 My Link: `{my_direct_link}`",
             reply_markup=btn,
             quote=True,
         )
 
-    # যদি নতুন ফাইল হয় তবে নাম চাবে
+    # নতুন ফাইল হলে নাম চাইবে
     waiting_for_name[message.from_user.id] = message
     await message.reply_text("📝 **Please send a Name for this file:**")
 
@@ -145,25 +148,20 @@ async def process_name(client, message):
 
     orig_msg = waiting_for_name.pop(uid)
     media = orig_msg.document or orig_msg.video or orig_msg.audio
-    if not media:
-        return await message.reply_text("❌ Media not found!")
 
-    # নাম ফরম্যাট করা
     user_input_name = message.text.replace(" ", "_")
     ext = os.path.splitext(getattr(media, "file_name", "video.mkv"))[1] or ".mkv"
     final_file_name = (
         f"[Moviedekhobd.rf.gd] {user_input_name} [Moviedekhobd.rf.gd]{ext}"
     )
 
-    sts = await message.reply_text("🚀 **Storing in Global Storage...**")
+    sts = await message.reply_text("🚀 **Storing and Generating Link...**")
 
     try:
-        # স্টোরেজ চ্যানেলে পাঠানো (ফাইল রিনেম করে)
-        sent = await client.send_document(
+        # স্টোরেজ চ্যানেলে কপি পাঠানো (নামের ঝামেলা এড়াতে)
+        sent = await orig_msg.copy(
             chat_id=int(Config.STORAGE_CHANNEL),
-            document=media.file_id,
-            file_name=final_file_name,
-            caption=f"Name: {final_file_name}\n\nLink: {Config.BASE_URL}/dl/{secrets.token_hex(2)}/{quote(sanitize_filename(final_file_name))}",
+            caption=f"Name: {final_file_name}",  # শুরুতে শুধু নাম থাকবে
         )
 
         u_id = secrets.token_urlsafe(8)
@@ -172,14 +170,14 @@ async def process_name(client, message):
             f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(final_file_name))}"
         )
 
-        # ক্যাপশন আপডেট (সঠিক ডাইরেক্ট লিঙ্ক সহ)
+        # প্রথম বটের লিঙ্কটি ক্যাপশনে যোগ করা
         await client.edit_message_caption(
             chat_id=int(Config.STORAGE_CHANNEL),
             message_id=msg_id,
             caption=f"Name: {final_file_name}\n\nLink: {direct_link}",
         )
 
-        # ডাটাবেসে সেভ
+        # ডা+টাবেসে এন্ট্রি
         await db.collection.insert_one(
             {
                 "_id": u_id,
@@ -204,7 +202,6 @@ async def process_name(client, message):
         )
 
     except Exception as e:
-        print(traceback.format_exc())
         await sts.edit(f"❌ Error: {str(e)}")
 
 
