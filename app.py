@@ -89,14 +89,34 @@ async def start_cmd(_, message: Message):
 async def file_handler(_, message: Message):
     media = message.document or message.video or message.audio
 
-    # --- Check duplicate (আগে থেকেই আছে কিনা) ---
+    # --- ডুপ্লিকেট চেক ---
     existing = await db.collection.find_one({"file_unique_id": media.file_unique_id})
     if existing:
         u_id = existing["_id"]
         msg_id = existing["message_id"]
         f_name = existing.get("file_name", "video.mkv")
 
-        direct_link = f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(f_name))}"  # ===== UPDATE =====
+        # বর্তমান বটের ডোমেইন দিয়ে লিঙ্ক
+        direct_link = (
+            f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(f_name))}"
+        )
+
+        # স্টোরেজ চ্যানেলে এই বটের লিঙ্ক অ্যাড করার চেষ্টা (Edit Caption)
+        try:
+            target_msg = await bot.get_messages(int(Config.STORAGE_CHANNEL), msg_id)
+            caption = target_msg.caption or ""
+
+            # যদি এই বটের লিঙ্ক আগে থেকেই না থাকে, তবে শেষে অ্যাড করো
+            if Config.BASE_URL not in caption:
+                new_caption = f"{caption}\nLink: {direct_link}"
+                await bot.edit_message_caption(
+                    chat_id=int(Config.STORAGE_CHANNEL),
+                    message_id=msg_id,
+                    caption=new_caption,
+                )
+        except Exception:
+            pass  # মেসেজ এডিট না হলেও ভিডিও লিঙ্ক ইউজারকে দেবে
+
         btn = InlineKeyboardMarkup(
             [
                 [
@@ -107,12 +127,12 @@ async def file_handler(_, message: Message):
             ]
         )
         return await message.reply_text(
-            f"✅ **File already exists!**\n\n🔗 Direct Link: `{direct_link}`",
+            f"✅ **File already exists!**\n\n🔗 My Link: `{direct_link}`",
             reply_markup=btn,
             quote=True,
         )
 
-    # নাম চাওয়ার জন্য ওয়েটিং লিস্টে রাখা
+    # যদি নতুন ফাইল হয় তবে নাম চাবে
     waiting_for_name[message.from_user.id] = message
     await message.reply_text("📝 **Please send a Name for this file:**")
 
@@ -123,34 +143,43 @@ async def process_name(client, message):
     if uid not in waiting_for_name:
         return
 
-    # আগের পাঠানো ফাইলটি উদ্ধার করা
     orig_msg = waiting_for_name.pop(uid)
     media = orig_msg.document or orig_msg.video or orig_msg.audio
-
     if not media:
         return await message.reply_text("❌ Media not found!")
 
     # নাম ফরম্যাট করা
     user_input_name = message.text.replace(" ", "_")
-    original_name = getattr(media, "file_name", "video.mkv") or "video.mkv"
-    ext = os.path.splitext(original_name)[1] or ".mkv"
-    final_file_name = f"[Moviedekhobd.rf.gd] {user_input_name} [Moviedekhobd.rf.gd]{ext}"
+    ext = os.path.splitext(getattr(media, "file_name", "video.mkv"))[1] or ".mkv"
+    final_file_name = (
+        f"[Moviedekhobd.rf.gd] {user_input_name} [Moviedekhobd.rf.gd]{ext}"
+    )
 
-    sts = await message.reply_text("🚀 **Storing in progress...**")
+    sts = await message.reply_text("🚀 **Storing in Global Storage...**")
 
     try:
-        # 🔥 নতুন সমাধান: সরাসরি কপি করে ক্যাপশন পরিবর্তন করা (সবচেয়ে সেফ পদ্ধতি)
-        # টেলিগ্রামে cached media র মাধ্যমে নাম পরিবর্তন অনেক সময় লিমিটেড থাকে
-        # তাই আমরা কপি করছি এবং ক্যাপশন দিচ্ছি যেন আপনি সহজে খুজে পান
-        sent = await orig_msg.copy(
+        # স্টোরেজ চ্যানেলে পাঠানো (ফাইল রিনেম করে)
+        sent = await client.send_document(
             chat_id=int(Config.STORAGE_CHANNEL),
-            caption=f"Name: {user_input_name}",  # নরমাল টেক্সট ক্যাপশন
+            document=media.file_id,
+            file_name=final_file_name,
+            caption=f"Name: {final_file_name}\n\nLink: {Config.BASE_URL}/dl/{secrets.token_hex(2)}/{quote(sanitize_filename(final_file_name))}",
         )
 
         u_id = secrets.token_urlsafe(8)
         msg_id = sent.id
+        direct_link = (
+            f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(final_file_name))}"
+        )
 
-        # ডাটাবেসে সেভ (এখানে আপনার দেওয়া সুন্দর নামটিই থাকবে)
+        # ক্যাপশন আপডেট (সঠিক ডাইরেক্ট লিঙ্ক সহ)
+        await client.edit_message_caption(
+            chat_id=int(Config.STORAGE_CHANNEL),
+            message_id=msg_id,
+            caption=f"Name: {final_file_name}\n\nLink: {direct_link}",
+        )
+
+        # ডাটাবেসে সেভ
         await db.collection.insert_one(
             {
                 "_id": u_id,
@@ -158,11 +187,6 @@ async def process_name(client, message):
                 "file_unique_id": media.file_unique_id,
                 "file_name": final_file_name,
             }
-        )
-
-        # লিঙ্ক জেনারেট
-        direct_link = (
-            f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(final_file_name))}"
         )
 
         btn = InlineKeyboardMarkup(
@@ -174,15 +198,14 @@ async def process_name(client, message):
                 ]
             ]
         )
-
         await sts.edit(
-            f"✅ **Success! File Stored.**\n\n📄 **Name:** {final_file_name}\n🔗 **Link:** `{direct_link}`",
+            f"✅ **Success! Stored.**\n\n📄 **Name:** {final_file_name}\n🔗 **Link:** `{direct_link}`",
             reply_markup=btn,
         )
 
     except Exception as e:
-        print(f"Error detail: {e}")  # এটি রেন্ডার লগ-এ দেখাবে আসল সমস্যা কি
-        await sts.edit(f"❌ একটি সমস্যা হয়েছে: {str(e)}")
+        print(traceback.format_exc())
+        await sts.edit(f"❌ Error: {str(e)}")
 
 
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
