@@ -125,24 +125,36 @@ async def process_name(client, message):
 
     # আগের পাঠানো ফাইলটি উদ্ধার করা
     orig_msg = waiting_for_name.pop(uid)
-    media = orig_msg.document or orig_msg.video or orig_msg.audio
 
-    # এক্সটেনশন বের করা
+    # মিডিয়া অবজেক্ট ডিটেক্ট করা
+    media = orig_msg.document or orig_msg.video or orig_msg.audio
+    if not media:
+        return await message.reply_text(
+            "❌ Media not found. Please send the file again."
+        )
+
+    # নাম ফরম্যাট করা
     user_input_name = message.text.replace(" ", "_")
-    ext = os.path.splitext(media.file_name or "video.mkv")[1] or ".mkv"
+    original_name = getattr(media, "file_name", "video.mkv") or "video.mkv"
+    ext = os.path.splitext(original_name)[1] or ".mkv"
     final_file_name = f"[Moviedekhobd.rf.gd] {user_input_name}[Moviedekhobd.rf.gd]{ext}"
 
-    sts = await message.reply_text("🚀 **Processing and Storing with custom name...**")
+    sts = await message.reply_text("🚀 **Processing and Storing...**")
 
     try:
-        # 🔥 ফিক্স: copy এর বদলে সরাসরি ফাইল আইডি ব্যবহার করে নতুন নামে পাঠানো
-        # এতে স্টোরেজ চ্যানেলে আপনার দেওয়া নামটাই সেভ হবে
-        sent = await client.send_document(
-            chat_id=int(Config.STORAGE_CHANNEL),
-            document=media.file_id,
-            file_name=final_file_name,  # এখানে নতুন নাম সেট করা হচ্ছে
-            caption=f"📄 Name: `{final_file_name}`",
-        )
+        # 🔥 নতুন ট্রিক: সরাসরি copy না করে file_id ব্যবহার করে পাঠানো
+        # যদি send_document কাজ না করে তবে fallback হিসেবে copy ব্যবহার করবে
+        try:
+            sent = await client.send_document(
+                chat_id=int(Config.STORAGE_CHANNEL),
+                document=media.file_id,
+                file_name=final_file_name,
+                caption=f"📄 **Name:** `{final_file_name}`\n👤 **Requested by:** {message.from_user.mention}",
+            )
+        except Exception as e:
+            print(f"Direct send failed, trying copy: {e}")
+            # fallback: যদি উপরেরটা কাজ না করে তবে আগের মতোই কপি করবে
+            sent = await orig_msg.copy(chat_id=int(Config.STORAGE_CHANNEL))
 
         u_id = secrets.token_urlsafe(8)
         msg_id = sent.id
@@ -157,30 +169,26 @@ async def process_name(client, message):
             }
         )
 
+        # লিঙ্ক জেনারেট (Config.BASE_URL আপনার রেন্ডার লিঙ্ক)
         direct_link = (
             f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(final_file_name))}"
         )
+        watch_link = f"{Config.BASE_URL}/show/{u_id}"
 
         btn = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}"
-                    )
-                ]
-            ]
+            [[InlineKeyboardButton("🖥️ Watch Online", url=watch_link)]]
         )
 
-        await sts.delete()
-        await message.reply_text(
-            f"✅ **Success! File Stored with New Name.**\n\n📄 Name: `{final_file_name}`\n🔗 Direct Link: `{direct_link}`",
+        await sts.edit(
+            f"✅ **Success! File Stored.**\n\n"
+            f"📄 **Name:** `{final_file_name}`\n"
+            f"🔗 **Direct Link:** `{direct_link}`",
             reply_markup=btn,
-            quote=True,
         )
 
     except Exception:
-        await message.reply_text("❌ Failed to process name and store file.")
-        print(traceback.format_exc())
+        print(traceback.format_exc())  # কনসোলে আসল এরর দেখাবে
+        await sts.edit("❌ Failed to store file. Please check logs.")
 
 
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
