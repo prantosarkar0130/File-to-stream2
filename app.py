@@ -290,11 +290,12 @@ async def stream_media(r: Request, mid: int, fname: str):
             "Content-Type": content_type,
             "Accept-Ranges": "bytes",
             "Content-Length": str(rl),
-            "Content-Disposition": "inline",
+            "Content-Disposition": f'inline; filename="{fname}"',
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Range, Content-Type",
-            "Cache-Control": "public, max-age=86400",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Range, Content-Type, X-Requested-With",
+            "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+            "Cache-Control": "no-cache",
         }
 
         # ===== Content-Range =====
