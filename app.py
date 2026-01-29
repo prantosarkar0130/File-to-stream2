@@ -123,43 +123,37 @@ async def process_name(client, message):
     if uid not in waiting_for_name:
         return
 
-    # আগের পাঠানো ফাইলটি উদ্ধার করা
+    # Agee pathano file ti neoa
     orig_msg = waiting_for_name.pop(uid)
-
-    # মিডিয়া অবজেক্ট ডিটেক্ট করা
     media = orig_msg.document or orig_msg.video or orig_msg.audio
-    if not media:
-        return await message.reply_text(
-            "❌ Media not found. Please send the file again."
-        )
 
-    # নাম ফরম্যাট করা
+    if not media:
+        return await message.reply_text("❌ Media paoa jayni!")
+
+    # User er deoa name set kora
     user_input_name = message.text.replace(" ", "_")
     original_name = getattr(media, "file_name", "video.mkv") or "video.mkv"
     ext = os.path.splitext(original_name)[1] or ".mkv"
+
+    # Storage channel ebong database er jonno final name
     final_file_name = f"[Moviedekhobd.rf.gd] {user_input_name}[Moviedekhobd.rf.gd]{ext}"
 
-    sts = await message.reply_text("🚀 **Processing and Storing...**")
+    sts = await message.reply_text("🚀 **Storage channel-e pathano hochhe...**")
 
     try:
-        # 🔥 নতুন ট্রিক: সরাসরি copy না করে file_id ব্যবহার করে পাঠানো
-        # যদি send_document কাজ না করে তবে fallback হিসেবে copy ব্যবহার করবে
-        try:
-            sent = await client.send_document(
-                chat_id=int(Config.STORAGE_CHANNEL),
-                document=media.file_id,
-                file_name=final_file_name,
-                caption=f"📄 **Name:** `{final_file_name}`\n👤 **Requested by:** {message.from_user.mention}",
-            )
-        except Exception as e:
-            print(f"Direct send failed, trying copy: {e}")
-            # fallback: যদি উপরেরটা কাজ না করে তবে আগের মতোই কপি করবে
-            sent = await orig_msg.copy(chat_id=int(Config.STORAGE_CHANNEL))
+        # 1. Storage channel-e pathano (File name change krar jonno file_name use kora)
+        # Caption e code format (`) bad deoa hoyeche jate click to copy na hoy
+        sent = await client.send_document(
+            chat_id=int(Config.STORAGE_CHANNEL),
+            document=media.file_id,
+            file_name=final_file_name,
+            caption=f"Name: {final_file_name}",  # Normal text, click to copy hobe na
+        )
 
         u_id = secrets.token_urlsafe(8)
         msg_id = sent.id
 
-        # ডাটাবেসে সেভ করা
+        # 2. Database-e save kora
         await db.collection.insert_one(
             {
                 "_id": u_id,
@@ -169,26 +163,31 @@ async def process_name(client, message):
             }
         )
 
-        # লিঙ্ক জেনারেট (Config.BASE_URL আপনার রেন্ডার লিঙ্ক)
+        # 3. User-ke direct link deoa
         direct_link = (
             f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(final_file_name))}"
         )
-        watch_link = f"{Config.BASE_URL}/show/{u_id}"
 
         btn = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🖥️ Watch Online", url=watch_link)]]
+            [
+                [
+                    InlineKeyboardButton(
+                        "🖥️ Watch Online", url=f"{Config.BASE_URL}/show/{u_id}"
+                    )
+                ]
+            ]
         )
 
         await sts.edit(
-            f"✅ **Success! File Stored.**\n\n"
-            f"📄 **Name:** `{final_file_name}`\n"
-            f"🔗 **Direct Link:** `{direct_link}`",
+            f"✅ **Storage-e save hoyeche!**\n\n"
+            f"📄 **File Name:** `{final_file_name}`\n"
+            f"🔗 **Link:** `{direct_link}`",
             reply_markup=btn,
         )
 
     except Exception:
-        print(traceback.format_exc())  # কনসোলে আসল এরর দেখাবে
-        await sts.edit("❌ Failed to store file. Please check logs.")
+        print(traceback.format_exc())
+        await sts.edit("❌ Kono shomossha hoyeche, logs check krun.")
 
 
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
