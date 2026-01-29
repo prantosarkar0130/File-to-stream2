@@ -172,7 +172,7 @@ async def process_name(client, message):
         )
 
         # প্রথম বটের লিঙ্কটি ক্যাপশনে যোগ করা
-        new_caption = f"Name: `{user_input_name}`\n\nLink: `{direct_link}`"
+        new_caption = f"Name: {user_input_name}\n\nLink: `{direct_link}`"
 
         await client.edit_message_caption(
            chat_id=int(Config.STORAGE_CHANNEL),
