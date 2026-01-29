@@ -110,12 +110,13 @@ async def file_handler(_, message: Message):
             # যদি এই বটের লিঙ্ক আগে থেকে ক্যাপশনে না থাকে, তবেই আপডেট হবে
             if Config.BASE_URL not in old_caption:
                 # আগের ক্যাপশন ঠিক রেখে নতুন লাইন যোগ করা
-                new_caption = f"{old_caption}\nLink: {my_direct_link}"
+                new_caption = f"{old_caption}\nLink: `{my_direct_link}`"
 
                 await bot.edit_message_caption(
                     chat_id=int(Config.STORAGE_CHANNEL),
                     message_id=msg_id,
                     caption=new_caption,
+                    parse_mode=enums.ParseMode.MARKDOWN
                 )
         except Exception as e:
             print(f"Edit error: {e}")
@@ -161,7 +162,7 @@ async def process_name(client, message):
         # স্টোরেজ চ্যানেলে কপি পাঠানো (নামের ঝামেলা এড়াতে)
         sent = await orig_msg.copy(
             chat_id=int(Config.STORAGE_CHANNEL),
-            caption=f"Name: {final_file_name}",  # শুরুতে শুধু নাম থাকবে
+            caption=f"Name: {user_input_name}",  # শুরুতে শুধু নাম থাকবে
         )
 
         u_id = secrets.token_urlsafe(8)
@@ -171,10 +172,12 @@ async def process_name(client, message):
         )
 
         # প্রথম বটের লিঙ্কটি ক্যাপশনে যোগ করা
+        new_caption = f"Name: `{user_input_name}`\n\nLink: `{direct_link}`"
+
         await client.edit_message_caption(
-            chat_id=int(Config.STORAGE_CHANNEL),
-            message_id=msg_id,
-            caption=f"Name: {final_file_name}\n\nLink: {direct_link}",
+           chat_id=int(Config.STORAGE_CHANNEL),
+           message_id=msg_id,
+           caption=new_caption
         )
 
         # ডা+টাবেসে এন্ট্রি
