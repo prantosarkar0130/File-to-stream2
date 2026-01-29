@@ -128,19 +128,22 @@ async def process_name(client, message):
     media = orig_msg.document or orig_msg.video or orig_msg.audio
 
     # এক্সটেনশন বের করা
-    user_input_name = message.text.replace(
-        " ", "_"
-    )  # স্পেস থাকলে আন্ডারস্কোর করে দেওয়া
+    user_input_name = message.text.replace(" ", "_")
     ext = os.path.splitext(media.file_name or "video.mkv")[1] or ".mkv"
-
-    # আপনার চাহিদা অনুযায়ী নাম ফরম্যাট করা
     final_file_name = f"[Moviedekhobd.rf.gd] {user_input_name}[Moviedekhobd.rf.gd]{ext}"
 
-    sts = await message.reply_text("🚀 **Processing and Storing...**")
+    sts = await message.reply_text("🚀 **Processing and Storing with custom name...**")
 
     try:
-        # স্টোরেজ চ্যানেলে কপি পাঠানো
-        sent = await orig_msg.copy(chat_id=int(Config.STORAGE_CHANNEL))
+        # 🔥 ফিক্স: copy এর বদলে সরাসরি ফাইল আইডি ব্যবহার করে নতুন নামে পাঠানো
+        # এতে স্টোরেজ চ্যানেলে আপনার দেওয়া নামটাই সেভ হবে
+        sent = await client.send_document(
+            chat_id=int(Config.STORAGE_CHANNEL),
+            document=media.file_id,
+            file_name=final_file_name,  # এখানে নতুন নাম সেট করা হচ্ছে
+            caption=f"📄 Name: `{final_file_name}`",
+        )
+
         u_id = secrets.token_urlsafe(8)
         msg_id = sent.id
 
@@ -154,7 +157,9 @@ async def process_name(client, message):
             }
         )
 
-        direct_link = f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(final_file_name))}"  # ===== UPDATE =====
+        direct_link = (
+            f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(final_file_name))}"
+        )
 
         btn = InlineKeyboardMarkup(
             [
@@ -168,7 +173,7 @@ async def process_name(client, message):
 
         await sts.delete()
         await message.reply_text(
-            f"✅ **Success! File Stored.**\n\n📄 Name: `{final_file_name}`\n🔗 Direct Link: `{direct_link}`",
+            f"✅ **Success! File Stored with New Name.**\n\n📄 Name: `{final_file_name}`\n🔗 Direct Link: `{direct_link}`",
             reply_markup=btn,
             quote=True,
         )
