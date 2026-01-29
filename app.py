@@ -123,37 +123,34 @@ async def process_name(client, message):
     if uid not in waiting_for_name:
         return
 
-    # Agee pathano file ti neoa
+    # আগের পাঠানো ফাইলটি উদ্ধার করা
     orig_msg = waiting_for_name.pop(uid)
     media = orig_msg.document or orig_msg.video or orig_msg.audio
 
     if not media:
-        return await message.reply_text("❌ Media paoa jayni!")
+        return await message.reply_text("❌ Media not found!")
 
-    # User er deoa name set kora
+    # নাম ফরম্যাট করা
     user_input_name = message.text.replace(" ", "_")
     original_name = getattr(media, "file_name", "video.mkv") or "video.mkv"
     ext = os.path.splitext(original_name)[1] or ".mkv"
-
-    # Storage channel ebong database er jonno final name
     final_file_name = f"[Moviedekhobd.rf.gd] {user_input_name}[Moviedekhobd.rf.gd]{ext}"
 
-    sts = await message.reply_text("🚀 **Storage channel-e pathano hochhe...**")
+    sts = await message.reply_text("🚀 **Storing in progress...**")
 
     try:
-        # 1. Storage channel-e pathano (File name change krar jonno file_name use kora)
-        # Caption e code format (`) bad deoa hoyeche jate click to copy na hoy
-        sent = await client.send_document(
+        # 🔥 নতুন সমাধান: সরাসরি কপি করে ক্যাপশন পরিবর্তন করা (সবচেয়ে সেফ পদ্ধতি)
+        # টেলিগ্রামে cached media র মাধ্যমে নাম পরিবর্তন অনেক সময় লিমিটেড থাকে
+        # তাই আমরা কপি করছি এবং ক্যাপশন দিচ্ছি যেন আপনি সহজে খুজে পান
+        sent = await orig_msg.copy(
             chat_id=int(Config.STORAGE_CHANNEL),
-            document=media.file_id,
-            file_name=final_file_name,
-            caption=f"Name: {final_file_name}",  # Normal text, click to copy hobe na
+            caption=f"Name: {final_file_name}",  # নরমাল টেক্সট ক্যাপশন
         )
 
         u_id = secrets.token_urlsafe(8)
         msg_id = sent.id
 
-        # 2. Database-e save kora
+        # ডাটাবেসে সেভ (এখানে আপনার দেওয়া সুন্দর নামটিই থাকবে)
         await db.collection.insert_one(
             {
                 "_id": u_id,
@@ -163,7 +160,7 @@ async def process_name(client, message):
             }
         )
 
-        # 3. User-ke direct link deoa
+        # লিঙ্ক জেনারেট
         direct_link = (
             f"{Config.BASE_URL}/dl/{msg_id}/{quote(sanitize_filename(final_file_name))}"
         )
@@ -179,15 +176,13 @@ async def process_name(client, message):
         )
 
         await sts.edit(
-            f"✅ **Storage-e save hoyeche!**\n\n"
-            f"📄 **File Name:** `{final_file_name}`\n"
-            f"🔗 **Link:** `{direct_link}`",
+            f"✅ **Success! File Stored.**\n\n📄 **Name:** {final_file_name}\n🔗 **Link:** `{direct_link}`",
             reply_markup=btn,
         )
 
-    except Exception:
-        print(traceback.format_exc())
-        await sts.edit("❌ Kono shomossha hoyeche, logs check krun.")
+    except Exception as e:
+        print(f"Error detail: {e}")  # এটি রেন্ডার লগ-এ দেখাবে আসল সমস্যা কি
+        await sts.edit(f"❌ একটি সমস্যা হয়েছে: {str(e)}")
 
 
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio))
